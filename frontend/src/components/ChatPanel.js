@@ -1,12 +1,11 @@
 import React, { useRef, useEffect, useState, useMemo, lazy, Suspense } from 'react';
-import { Box, TextField, IconButton, Typography, LinearProgress, Menu, MenuItem, Dialog, DialogContent } from '@mui/material';
-import SendIcon from '@mui/icons-material/Send';
-import StopIcon from '@mui/icons-material/Stop';
+import { Box, TextField, IconButton, Typography, Dialog, DialogContent } from '@mui/material';
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import { useChatContext } from '../contexts/ChatContext';
 import { useFile } from '../contexts/FileContext';
 import { useModelContext } from '../contexts/ModelContext';
-import VoiceInput from './VoiceInput';
-import SuggestionChips from './SuggestionChips';
+import { useAuth } from '../contexts/AuthContext';
 import SuggestedPrompts from './SuggestedPrompts';
 import FlashcardPopupDialog from './FlashcardPopupDialog';
 import QuizFlashcardDialog from './QuizFlashcardDialog';
@@ -17,11 +16,13 @@ const MarkdownRenderer = lazy(() => import('./MarkdownRenderer'));
 
 export default function ChatPanel() {
   const scrollRef = useRef(null);
-  const { activeSessionId, messages, addMessage, isLoading, streamingContent, stopGeneration, startNewSession, chatSessions } = useChatContext();
+  const { activeSessionId, messages, addMessage, isLoading, streamingContent, startNewSession, chatSessions } = useChatContext();
   const { file, goToSourcePage } = useFile();
   const { selectedModel } = useModelContext();
+  const { user } = useAuth();
+  const firstName = user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'there';
 
-  const [showPrompts, setShowPrompts] = useState(true);
+  const [showPrompts] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
 
   // ── Flashcard / Quiz quick-generate state ────────────────────────────────
@@ -106,17 +107,57 @@ export default function ChatPanel() {
   }, [messages, streamingContent]);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: '#000000', color: '#E5E5E5', fontFamily: 'monospace' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, bgcolor: 'var(--bg-primary)', color: 'var(--fg-primary)', fontFamily: 'var(--font-family)' }}>
 
-      {/* Header / Top Info */}
-      <Box sx={{ p: 1, borderBottom: '1px solid #333333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#888888' }}>
-          [ SESSION_ACTIVE ]
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#00FF00', animation: 'statusPulse 2.5s ease-in-out infinite' }}>
-            ONLINE
+      {/* ── Top bar (Cortex-style) ── */}
+      <Box sx={{
+        display: 'flex', alignItems: 'center', flexShrink: 0,
+        px: 2, py: 0.9,
+        borderBottom: '1px solid var(--border)',
+        bgcolor: 'var(--bg-secondary)',
+        gap: 1,
+      }}>
+        {/* Model/brand pill */}
+        <Box sx={{
+          display: 'flex', alignItems: 'center', gap: 0.5,
+          border: '1px solid var(--border)', borderRadius: '20px',
+          px: 1.25, py: 0.35, cursor: 'pointer',
+          transition: 'all 0.15s',
+          '&:hover': { borderColor: 'var(--border-focus)', bgcolor: 'var(--accent-dim)' },
+        }}>
+          <Box sx={{
+            width: 14, height: 14, borderRadius: '50%',
+            bgcolor: 'var(--accent)',
+          }} />
+          <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--fg-primary)' }}>
+            FileGeek
           </Typography>
+          <KeyboardArrowDownIcon sx={{ fontSize: 14, color: 'var(--fg-dim)' }} />
+        </Box>
+
+        <Box sx={{ flex: 1 }} />
+
+        {/* More options */}
+        <IconButton size="small" sx={{ color: 'var(--fg-dim)', '&:hover': { color: 'var(--fg-primary)', bgcolor: 'var(--accent-dim)' } }}>
+          <MoreHorizIcon sx={{ fontSize: 18 }} />
+        </IconButton>
+
+        {/* Export chat */}
+        <Box
+          onClick={() => {
+            const text = messages.map(m => `${m.role === 'user' ? 'You' : 'FileGeek'}: ${m.content}`).join('\n\n');
+            const blob = new Blob([text], { type: 'text/plain' });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'chat.txt'; a.click();
+          }}
+          sx={{
+            fontSize: '0.75rem', fontWeight: 500, color: 'var(--fg-secondary)',
+            border: '1px solid var(--border)', borderRadius: '8px',
+            px: 1.25, py: 0.4, cursor: 'pointer',
+            transition: 'all 0.15s',
+            '&:hover': { color: 'var(--fg-primary)', borderColor: 'var(--fg-secondary)' },
+          }}
+        >
+          Export chat
         </Box>
       </Box>
 
@@ -125,28 +166,57 @@ export default function ChatPanel() {
         ref={scrollRef}
         sx={{
           flex: 1,
+          minHeight: 0,
           overflowY: 'auto',
-          p: 2,
+          pt: 2,
+          px: 2,
+          pb: '110px',
           display: 'flex',
           flexDirection: 'column',
           gap: 2,
         }}
       >
         {displayMessages.length === 0 && showPrompts ? (
-          <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4 }}>
-            <Box sx={{ textAlign: 'center', opacity: 0.7 }}>
-              <Typography variant="h6" sx={{ fontFamily: 'monospace', fontWeight: 700, mb: 1 }}>
-                Input Required
-              </Typography>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace', color: '#888' }}>
-                Awaiting commands or queries...
-              </Typography>
-            </Box>
-            <SuggestedPrompts
-              onSelect={(prompt) => {
-                addMessage(prompt);
-              }}
-            />
+          <Box sx={{
+            height: '100%', display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            gap: 2, pb: 8,
+          }}>
+            {/* 3-D orb — matches Cortex */}
+            <Box sx={{
+              width: 88, height: 88, borderRadius: '50%', flexShrink: 0,
+              bgcolor: 'var(--accent)',
+              boxShadow: '0 0 56px rgba(249,115,22,0.22), inset 0 0 28px rgba(255,255,255,0.28)',
+              animation: 'orbPulse 3.5s ease-in-out infinite',
+            }} />
+
+            {/* "Hello, [name]" — gradient purple like Cortex */}
+            <Typography sx={{
+              fontFamily: 'var(--font-family)',
+              fontWeight: 600,
+              fontSize: '1.75rem',
+              letterSpacing: '-0.02em',
+              color: 'var(--accent)',
+              lineHeight: 1.2,
+              mb: -0.5,
+            }}>
+              Hello, {firstName}
+            </Typography>
+
+            {/* "How can I assist you today?" — bold black */}
+            <Typography sx={{
+              fontFamily: 'var(--font-family)',
+              fontWeight: 700,
+              fontSize: '1.5rem',
+              color: 'var(--fg-primary)',
+              letterSpacing: '-0.02em',
+              textAlign: 'center',
+            }}>
+              How can I assist you today?
+            </Typography>
+
+            {/* Suggestion cards — 3-column, no backgrounds */}
+            <SuggestedPrompts onSelect={(prompt) => addMessage(prompt)} />
           </Box>
         ) : (
           displayMessages.map((msg, index) => (
@@ -162,66 +232,75 @@ export default function ChatPanel() {
                 <ThinkingBlock steps={msg.tool_calls} isGenerating={msg.isStreaming} />
               )}
 
-              {/* Custom Message Bubble for Brutalist Theme */}
+              {/* Message Bubble */}
               <Box
-                sx={{
-                  border: msg.role === 'user' ? '1px solid var(--border)' : '1px solid var(--border)',
-                  bgcolor: msg.role === 'user' ? 'transparent' : 'var(--bg-secondary)',
-                  p: 1.5,
-                  position: 'relative',
-                  borderRadius: msg.role === 'user' ? '4px 0 4px 4px' : '0 4px 4px 4px',
-                }}
+                sx={
+                  msg.role === 'user'
+                    ? {
+                      bgcolor: 'var(--accent)',
+                      color: '#FFFFFF',
+                      px: 2, py: 1.25,
+                      borderRadius: '18px 18px 4px 18px',
+                      boxShadow: 'var(--shadow)',
+                    }
+                    : {
+                      bgcolor: 'var(--bg-secondary)',
+                      border: '1px solid var(--border)',
+                      px: 2, py: 1.5,
+                      borderRadius: '4px 18px 18px 18px',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                      position: 'relative',
+                    }
+                }
               >
-                <Typography
-                  variant="caption"
-                  sx={{
-                    position: 'absolute',
-                    top: -10,
-                    left: 10,
-                    bgcolor: '#000000',
-                    px: 0.5,
-                    fontFamily: 'monospace',
-                    color: msg.role === 'user' ? '#E5E5E5' : '#888888',
-                    fontSize: '0.7rem'
-                  }}
-                >
-                  {msg.role === 'user' ? '[ USER ]' : '[ SYS ]'}
-                </Typography>
-
+                {/* Copy button for assistant messages */}
                 {msg.role === 'assistant' && !msg.isStreaming && (
                   <Box
                     onClick={() => handleCopy(msg.id || index, msg.content)}
                     sx={{
                       position: 'absolute',
-                      top: 4,
-                      right: 4,
+                      top: 8, right: 10,
                       cursor: 'pointer',
-                      color: copiedId === (msg.id || index) ? '#00FF00' : '#555555',
-                      fontFamily: 'monospace',
-                      fontSize: '0.6rem',
-                      fontWeight: 700,
-                      '&:hover': { color: '#E5E5E5' },
+                      fontSize: '0.68rem',
+                      fontWeight: 600,
+                      color: copiedId === (msg.id || index) ? 'var(--success)' : 'var(--fg-dim)',
+                      fontFamily: 'var(--font-family)',
+                      '&:hover': { color: 'var(--accent)' },
+                      transition: 'color 0.15s',
                     }}
                   >
-                    {copiedId === (msg.id || index) ? '[OK]' : '[CPY]'}
+                    {copiedId === (msg.id || index) ? 'Copied!' : 'Copy'}
                   </Box>
                 )}
 
-                {/* Message Content */}
+                {/* Content */}
                 {msg.role === 'assistant' ? (
-                  <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: 1.6, '& p': { m: 0, mb: 0.5 }, '& pre': { background: '#111', p: 1, borderRadius: 0, overflow: 'auto', border: '1px solid #333' }, '& code': { fontFamily: 'monospace', fontSize: '0.8rem', background: '#111', px: 0.5 }, '& h1,& h2,& h3': { mt: 1, mb: 0.5 }, '& ul,& ol': { pl: 2, mt: 0.5, mb: 0.5 }, '& table': { borderCollapse: 'collapse', width: '100%' }, '& th,& td': { border: '1px solid #333', p: 0.5 } }}>
-                    <Suspense fallback={<Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{msg.content}</Typography>}>
+                  <Box sx={{
+                    fontFamily: 'var(--font-family)', fontSize: '0.9rem', lineHeight: 1.65,
+                    color: 'var(--fg-primary)',
+                    '& p': { m: 0, mb: 0.75 },
+                    '& pre': { background: 'var(--bg-tertiary)', p: 1.25, borderRadius: '10px', overflow: 'auto', border: '1px solid var(--border)', fontSize: '0.82rem' },
+                    '& code': { fontFamily: 'var(--font-mono)', fontSize: '0.82rem', background: 'var(--bg-tertiary)', px: 0.5, py: 0.15, borderRadius: '4px' },
+                    '& h1,& h2,& h3': { mt: 1.5, mb: 0.5, fontWeight: 600 },
+                    '& ul,& ol': { pl: 2.5, mt: 0.5, mb: 0.5 },
+                    '& li': { mb: 0.25 },
+                    '& table': { borderCollapse: 'collapse', width: '100%', mt: 0.5 },
+                    '& th,& td': { border: '1px solid var(--border)', p: '6px 10px', fontSize: '0.85rem' },
+                    '& th': { background: 'var(--bg-tertiary)', fontWeight: 600 },
+                    '& blockquote': { borderLeft: '3px solid var(--accent)', ml: 0, pl: 1.5, color: 'var(--fg-secondary)', fontStyle: 'italic' },
+                  }}>
+                    <Suspense fallback={<Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.65, color: 'var(--fg-primary)' }}>{msg.content}</Typography>}>
                       <MarkdownRenderer content={msg.content} />
                     </Suspense>
                   </Box>
                 ) : (
-                  <Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                  <Typography variant="body2" sx={{ fontFamily: 'var(--font-family)', whiteSpace: 'pre-wrap', lineHeight: 1.6, color: '#FFFFFF' }}>
                     {msg.content}
                   </Typography>
                 )}
 
                 {msg.isStreaming && (
-                  <Box sx={{ display: 'inline-block', ml: 1, width: 8, height: 16, bgcolor: '#00FF00', animation: 'blink 1s step-end infinite' }} />
+                  <Box sx={{ display: 'inline-block', ml: 0.5, width: 7, height: 15, bgcolor: 'var(--accent)', borderRadius: '2px', animation: 'blink 1s step-end infinite', verticalAlign: 'text-bottom' }} />
                 )}
               </Box>
 
@@ -233,18 +312,22 @@ export default function ChatPanel() {
                       key={i}
                       onClick={() => goToSourcePage(src)}
                       sx={{
-                        fontFamily: 'monospace',
-                        fontSize: '0.65rem',
-                        color: '#00FF88',
-                        border: '1px solid rgba(0,255,136,0.4)',
-                        px: 0.75,
-                        py: 0.25,
+                        fontFamily: 'var(--font-family)',
+                        fontSize: '0.68rem',
+                        fontWeight: 600,
+                        color: 'var(--accent)',
+                        border: '1px solid var(--accent)',
+                        borderRadius: '20px',
+                        px: 1,
+                        py: 0.3,
                         cursor: 'pointer',
                         userSelect: 'none',
-                        '&:hover': { bgcolor: 'rgba(0,255,136,0.1)' },
+                        opacity: 0.8,
+                        transition: 'all 0.15s',
+                        '&:hover': { opacity: 1, bgcolor: 'var(--accent-dim)' },
                       }}
                     >
-                      [SRC:{src.pages?.[0] || '?'}]
+                      p.{src.pages?.[0] || '?'}
                     </Box>
                   ))}
                 </Box>
@@ -254,9 +337,24 @@ export default function ChatPanel() {
         )}
 
         {isLoading && !streamingContent && (
-          <Box sx={{ alignSelf: 'flex-start', maxWidth: '85%', border: '1px solid #333333', p: 2 }}>
-            <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#888' }}>[ PROCESSING REQUEST ]</Typography>
-            <LinearProgress sx={{ mt: 1, bgcolor: '#333333', '& .MuiLinearProgress-bar': { bgcolor: '#00FF00' } }} />
+          <Box sx={{
+            alignSelf: 'flex-start', maxWidth: '85%',
+            bgcolor: 'var(--bg-secondary)',
+            border: '1px solid var(--border)',
+            borderRadius: '4px 18px 18px 18px',
+            px: 2, py: 1.5,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+          }}>
+            <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
+              {[0, 0.2, 0.4].map((delay) => (
+                <Box key={delay} sx={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  bgcolor: 'var(--accent)',
+                  opacity: 0.5,
+                  animation: `blink 1.2s ease-in-out ${delay}s infinite`,
+                }} />
+              ))}
+            </Box>
           </Box>
         )}
       </Box>
@@ -269,24 +367,22 @@ export default function ChatPanel() {
         onClose={() => setTopicPrompt(null)}
         maxWidth="xs"
         fullWidth
-        PaperProps={{ sx: { bgcolor: '#0D0D0D', border: '1px solid #333', borderRadius: 0 } }}
+        PaperProps={{ sx: { bgcolor: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '16px' } }}
       >
-        <DialogContent sx={{ p: 2 }}>
-          <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#888', mb: 1.5 }}>
-            {`// Generate ${topicPrompt} from this session`}
+        <DialogContent sx={{ p: 2.5 }}>
+          <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.85rem', fontWeight: 600, color: 'var(--fg-primary)', mb: 1.5 }}>
+            Generate {topicPrompt} — enter a topic or leave blank for full document
           </Typography>
           <TextField
             autoFocus
             fullWidth
-            placeholder={`Topic (e.g. "memory management") — leave blank for full doc`}
+            placeholder={`e.g. "memory management", "chapter 3"`}
             value={topicInput}
             onChange={e => setTopicInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleQuickGenerate(topicPrompt, topicInput); }}
-            variant="standard"
-            InputProps={{
-              disableUnderline: true,
-              sx: { fontFamily: 'monospace', fontSize: '0.85rem', color: '#E5E5E5', border: '1px solid #333', px: 1, py: 0.5 },
-            }}
+            variant="outlined"
+            size="small"
+            sx={{ '& .MuiOutlinedInput-root': { borderRadius: '10px', fontFamily: 'var(--font-family)', fontSize: '0.9rem' } }}
           />
           {genError && (
             <Typography sx={{ fontFamily: 'monospace', fontSize: '0.65rem', color: '#FF4444', mt: 1 }}>{genError}</Typography>

@@ -9,7 +9,6 @@ import { ChatProvider } from './contexts/ChatContext';
 import { PersonaProvider } from './contexts/PersonaContext';
 import { ModelProvider } from './contexts/ModelContext';
 import { AnnotationProvider } from './contexts/AnnotationContext';
-import { HighlightsProvider } from './contexts/HighlightsContext';
 import LoginPage from './pages/LoginPage';
 import SignUpPage from './pages/SignUpPage';
 import SettingsPage from './pages/SettingsPage';
@@ -73,10 +72,8 @@ export default function App() {
             <FileProvider>
               <ChatProvider>
                 <AnnotationProvider>
-                  <HighlightsProvider>
-                    <a href="#main-content" className="skip-to-content">Skip to content</a>
-                    <AppRoutes />
-                  </HighlightsProvider>
+                  <a href="#main-content" className="skip-to-content">Skip to content</a>
+                  <AppRoutes />
                 </AnnotationProvider>
               </ChatProvider>
             </FileProvider>

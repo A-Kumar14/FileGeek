@@ -27,6 +27,9 @@ import {
   Palette,
   BookOpen,
   Brain,
+  Cpu,
+  Headphones,
+  GraduationCap,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { usePersona } from '../contexts/PersonaContext';
@@ -34,6 +37,7 @@ import { useFile } from '../contexts/FileContext';
 import { useChatContext } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useThemeMode } from '../theme/ThemeContext';
+import { useModelContext } from '../contexts/ModelContext';
 
 export default function CommandPalette({ onOpenDashboard }) {
   const [open, setOpen] = useState(false);
@@ -49,6 +53,8 @@ export default function CommandPalette({ onOpenDashboard }) {
   const { file, files, activeFileIndex, setActiveFileIndex, removeFile, handleFileSelect } = useFile();
   const { sendMessage, clearMessages, clearAllSessions } = useChatContext();
   const { setTheme, setLayoutMode } = useThemeMode();
+  const { selectedModel, setSelectedModel } = useModelContext();
+  const [socraticActive, setSocraticActive] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   useEffect(() => {
@@ -208,6 +214,62 @@ export default function CommandPalette({ onOpenDashboard }) {
       });
     });
 
+    // ── WORKFLOWS ─────────────────────────────────────────────────────────────
+    cmds.push(
+      {
+        id: 'socratic-toggle',
+        label: socraticActive ? 'DISABLE_SOCRATIC_MODE' : 'ENABLE_SOCRATIC_MODE',
+        icon: <GraduationCap className="w-4 h-4" />,
+        category: 'WORKFLOWS',
+        action: () => {
+          const next = !socraticActive;
+          setSocraticActive(next);
+          selectPersona(next ? 'socratic' : 'academic');
+        },
+        priority: 85,
+      },
+      {
+        id: 'podcast',
+        label: 'GENERATE_PODCAST_SCRIPT',
+        icon: <Headphones className="w-4 h-4" />,
+        category: 'WORKFLOWS',
+        action: () => sendMessage('Generate a podcast script summarizing this document.'),
+        priority: 82,
+      },
+    );
+
+    // ── MODEL SELECTION ────────────────────────────────────────────────────────
+    const MODELS = [
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', badge: 'FREE' },
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', badge: 'FREE' },
+      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', badge: 'PRO' },
+      { id: 'gpt-4o', name: 'GPT-4o', badge: 'PRO' },
+    ];
+    MODELS.forEach((m) => {
+      cmds.push({
+        id: `model-${m.id}`,
+        label: `USE_${m.name.toUpperCase().replace(/[\s.]/g, '_')}`,
+        icon: <Cpu className="w-4 h-4" />,
+        category: 'MODELS',
+        action: () => setSelectedModel(m.id),
+        priority: 45,
+        isActive: m.id === selectedModel,
+      });
+    });
+
+    // ── THEMES ────────────────────────────────────────────────────────────────
+    const AVAILABLE_THEMES = ['cortex', 'brutalist_dark', 'paper_white', 'cyber_amber', 'solarized'];
+    AVAILABLE_THEMES.forEach((t) => {
+      cmds.push({
+        id: `theme-cmd-${t}`,
+        label: `SWITCH_THEME_${t.toUpperCase()}`,
+        icon: <Palette className="w-4 h-4" />,
+        category: 'THEMES',
+        action: () => setTheme(t),
+        priority: 40,
+      });
+    });
+
     // ── Slash Commands ────────────────────────────────────────────────────────
     // These are always available when typed with a leading /
     cmds.push(
@@ -279,7 +341,7 @@ export default function CommandPalette({ onOpenDashboard }) {
     );
 
     return cmds;
-  }, [file, files, activeFileIndex, personas, navigate, removeFile, clearMessages, clearAllSessions, sendMessage, selectPersona, setActiveFileIndex, handleLogout, setTheme, setLayoutMode, onOpenDashboard]);
+  }, [file, files, activeFileIndex, personas, navigate, removeFile, clearMessages, clearAllSessions, sendMessage, selectPersona, setActiveFileIndex, handleLogout, setTheme, setLayoutMode, onOpenDashboard, socraticActive, selectedModel, setSelectedModel]);
 
   const filtered = useMemo(() => {
     const trimmed = query.trim();
@@ -362,17 +424,20 @@ export default function CommandPalette({ onOpenDashboard }) {
         fullWidth
         PaperProps={{
           sx: {
-            mt: '15vh',
+            mt: '12vh',
             mx: 'auto',
-            bgcolor: '#0D0D0D',
-            border: '1px solid #333333',
+            bgcolor: 'var(--bg-secondary)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid var(--border)',
+            borderRadius: '20px',
+            boxShadow: 'var(--accent-glow)',
             overflow: 'hidden',
-            borderRadius: 0,
           },
         }}
         slotProps={{
           backdrop: {
-            sx: { backgroundColor: 'rgba(0, 0, 0, 0.85)' },
+            sx: { backgroundColor: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(4px)' },
           },
         }}
         TransitionProps={{ onEntered: () => inputRef.current?.focus() }}
@@ -384,27 +449,27 @@ export default function CommandPalette({ onOpenDashboard }) {
             alignItems: 'center',
             gap: 1,
             px: 2,
-            py: 1.5,
-            borderBottom: '1px solid #333333',
+            py: 1.25,
+            borderBottom: '1px solid var(--border)',
           }}
         >
           <Search className="w-4 h-4 text-mono-dim" />
           <InputBase
             inputRef={inputRef}
-            placeholder="TYPE_COMMAND_OR_SEARCH_FILES..."
+            placeholder="Search commands, files, personas..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             fullWidth
             sx={{
-              fontSize: '0.875rem',
-              fontFamily: 'monospace',
-              fontWeight: 500,
-              color: '#E5E5E5',
-              '& input::placeholder': { color: '#666', opacity: 1 },
+              fontSize: '0.95rem',
+              fontFamily: 'var(--font-family)',
+              fontWeight: 400,
+              color: 'var(--fg-primary)',
+              '& input::placeholder': { color: 'var(--fg-dim)', opacity: 1 },
             }}
           />
-          <Typography sx={{ fontSize: '0.65rem', fontFamily: 'monospace', color: '#888', border: '1px solid #333', px: 0.75, py: 0.25 }}>
+          <Typography sx={{ fontSize: '0.65rem', color: 'var(--fg-dim)', border: '1px solid var(--border)', borderRadius: '8px', px: 0.75, py: 0.25 }}>
             {navigator.platform?.includes('Mac') ? '⌘K' : 'Ctrl+K'}
           </Typography>
         </Box>
@@ -434,17 +499,16 @@ export default function CommandPalette({ onOpenDashboard }) {
                     sx={{
                       px: 1.5,
                       pt: idx === 0 ? 0.5 : 1.5,
-                      pb: 0.5,
+                      pb: 0.4,
                       display: 'block',
-                      fontFamily: 'monospace',
-                      fontWeight: 700,
-                      letterSpacing: '0.1em',
+                      fontWeight: 600,
+                      letterSpacing: '0.08em',
                       textTransform: 'uppercase',
-                      fontSize: '0.6rem',
-                      color: '#888',
+                      fontSize: '0.62rem',
+                      color: 'var(--fg-dim)',
                     }}
                   >
-                    {`// ${cmd.category}`}
+                    {cmd.category.replace(/_/g, ' ')}
                   </Typography>
                 )}
                 <ListItemButton
@@ -456,32 +520,32 @@ export default function CommandPalette({ onOpenDashboard }) {
                   sx={{
                     py: 0.75,
                     px: 1.5,
-                    mb: 0.25,
-                    borderLeft: idx === selectedIndex ? '2px solid #00FF00' : '2px solid transparent',
-                    bgcolor: cmd.isActive ? 'rgba(0, 255, 0, 0.05)' : 'transparent',
+                    mb: 0.15,
+                    borderRadius: '10px',
+                    bgcolor: cmd.isActive ? 'var(--accent-dim)' : 'transparent',
                     '&.Mui-selected': {
-                      bgcolor: cmd.isActive ? 'rgba(0, 255, 0, 0.1)' : '#1A1A1A',
-                      '&:hover': { bgcolor: '#222' },
+                      bgcolor: 'var(--accent-dim)',
+                      '&:hover': { bgcolor: 'var(--accent-dim)' },
                     },
-                    '&:hover': { bgcolor: cmd.isActive ? 'rgba(0, 255, 0, 0.08)' : '#1A1A1A' },
+                    '&:hover': { bgcolor: 'var(--accent-dim)' },
                   }}
                 >
-                  <ListItemIcon sx={{ minWidth: 32, color: idx === selectedIndex ? '#00FF00' : cmd.isActive ? '#00FF00' : '#888' }}>
+                  <ListItemIcon sx={{ minWidth: 32, color: idx === selectedIndex ? 'var(--accent)' : cmd.isActive ? 'var(--accent)' : 'var(--fg-dim)' }}>
                     {cmd.icon}
                   </ListItemIcon>
                   <ListItemText
                     primary={cmd.label}
                     primaryTypographyProps={{
-                      fontFamily: 'monospace',
-                      fontWeight: cmd.isActive ? 700 : 500,
-                      fontSize: '0.8rem',
-                      color: idx === selectedIndex ? '#E5E5E5' : cmd.isActive ? '#00FF00' : '#AAA',
+                      fontFamily: 'var(--font-family)',
+                      fontWeight: cmd.isActive ? 600 : 400,
+                      fontSize: '0.85rem',
+                      color: idx === selectedIndex ? 'var(--fg-primary)' : cmd.isActive ? 'var(--accent)' : 'var(--fg-secondary)',
                       noWrap: true,
                     }}
                   />
                   {cmd.isActive && (
-                    <Typography sx={{ fontSize: '0.6rem', fontFamily: 'monospace', color: '#00FF00', ml: 1 }}>
-                      [ACTIVE]
+                    <Typography sx={{ fontSize: '0.6rem', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '8px', px: 0.75, py: 0.1, ml: 1 }}>
+                      active
                     </Typography>
                   )}
                 </ListItemButton>
@@ -491,25 +555,17 @@ export default function CommandPalette({ onOpenDashboard }) {
         </List>
 
         {/* Footer hints */}
-        <Box
-          sx={{
-            display: 'flex',
-            gap: 2,
-            px: 2,
-            py: 0.75,
-            borderTop: '1px solid #333333',
-          }}
-        >
+        <Box sx={{ display: 'flex', gap: 2, px: 2, py: 0.75, borderTop: '1px solid var(--border)' }}>
           {[
-            { key: '↑↓', label: 'NAV' },
-            { key: '↵', label: 'SELECT' },
-            { key: 'ESC', label: 'CLOSE' },
+            { key: '↑↓', label: 'Navigate' },
+            { key: '↵', label: 'Select' },
+            { key: 'Esc', label: 'Close' },
           ].map(({ key, label }) => (
             <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Typography sx={{ fontSize: '0.6rem', fontFamily: 'monospace', color: '#888', border: '1px solid #333', px: 0.5 }}>
+              <Typography sx={{ fontSize: '0.62rem', color: 'var(--fg-secondary)', border: '1px solid var(--border)', borderRadius: '6px', px: 0.6, py: 0.15 }}>
                 {key}
               </Typography>
-              <Typography sx={{ fontSize: '0.6rem', fontFamily: 'monospace', color: '#666' }}>
+              <Typography sx={{ fontSize: '0.62rem', color: 'var(--fg-dim)' }}>
                 {label}
               </Typography>
             </Box>
@@ -524,12 +580,12 @@ export default function CommandPalette({ onOpenDashboard }) {
         maxWidth="xs"
         fullWidth
         PaperProps={{
-          sx: { bgcolor: '#0D0D0D', border: '1px solid #333333', borderRadius: 0 },
+          sx: { bgcolor: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '16px' },
         }}
       >
         <Box sx={{ px: 3, py: 2 }}>
-          <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, mb: 2, color: '#E5E5E5', fontSize: '0.9rem' }}>
-            KEYBOARD_SHORTCUTS
+          <Typography sx={{ fontWeight: 700, mb: 2, color: 'var(--fg-primary)', fontSize: '0.95rem' }}>
+            Keyboard Shortcuts
           </Typography>
           {[
             { keys: navigator.platform?.includes('Mac') ? '⌘K' : 'Ctrl+K', desc: 'Command palette' },
@@ -539,9 +595,9 @@ export default function CommandPalette({ onOpenDashboard }) {
             { keys: '← →', desc: 'Prev / next page' },
             { keys: '+  −', desc: 'Zoom in / out' },
           ].map(({ keys, desc }) => (
-            <Box key={desc} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.5, borderBottom: '1px solid #222' }}>
-              <Typography sx={{ fontSize: '0.75rem', fontFamily: 'monospace', color: '#888' }}>{desc}</Typography>
-              <Typography sx={{ fontSize: '0.7rem', fontFamily: 'monospace', color: '#E5E5E5', border: '1px solid #333', px: 0.75, py: 0.25 }}>
+            <Box key={desc} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.5, borderBottom: '1px solid var(--border)' }}>
+              <Typography sx={{ fontSize: '0.8rem', color: 'var(--fg-secondary)' }}>{desc}</Typography>
+              <Typography sx={{ fontSize: '0.72rem', color: 'var(--accent)', border: '1px solid var(--border)', borderRadius: '8px', px: 0.75, py: 0.2 }}>
                 {keys}
               </Typography>
             </Box>

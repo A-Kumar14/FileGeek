@@ -1,18 +1,37 @@
 import React, { useState } from 'react';
 import {
-  TextField,
-  Typography,
-  Box,
-  Divider,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
+  TextField, Typography, Box, Divider,
+  Select, MenuItem, FormControl, InputLabel, Button,
 } from '@mui/material';
 import { useChatContext } from '../contexts/ChatContext';
 import { usePersona } from '../contexts/PersonaContext';
 import { useThemeMode } from '../theme/ThemeContext';
 import { THEME_NAMES, FONT_NAMES } from '../theme/themes';
+
+function Section({ label, children }) {
+  return (
+    <Box sx={{ mb: 2.5 }}>
+      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--fg-primary)', mb: 1.25, fontFamily: 'var(--font-family)' }}>
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  );
+}
+
+function SaveBtn({ onClick }) {
+  return (
+    <Button variant="contained" size="small" onClick={onClick} disableElevation
+      sx={{
+        bgcolor: 'var(--accent)',
+        color: '#FFF', fontFamily: 'var(--font-family)', fontSize: '0.75rem',
+        fontWeight: 600, borderRadius: '8px', px: 2, py: 0.65,
+        whiteSpace: 'nowrap', textTransform: 'none', flexShrink: 0, minWidth: 64,
+        '&:hover': { bgcolor: 'var(--accent)', opacity: 0.88 },
+      }}
+    >Save</Button>
+  );
+}
 
 export default function SettingsContent() {
   const { clearAllSessions } = useChatContext();
@@ -26,260 +45,121 @@ export default function SettingsContent() {
   const flash = () => { setSaved(true); setTimeout(() => setSaved(false), 2000); };
 
   const handleSaveGemini = () => {
-    if (geminiKey.trim()) {
-      localStorage.setItem('filegeek-gemini-key', geminiKey.trim());
-    } else {
-      localStorage.removeItem('filegeek-gemini-key');
-    }
+    if (geminiKey.trim()) localStorage.setItem('filegeek-gemini-key', geminiKey.trim());
+    else localStorage.removeItem('filegeek-gemini-key');
     flash();
   };
-
   const handleSaveOpenai = () => {
-    if (openaiKey.trim()) {
-      localStorage.setItem('filegeek-api-key', openaiKey.trim());
-    } else {
-      localStorage.removeItem('filegeek-api-key');
-    }
+    if (openaiKey.trim()) localStorage.setItem('filegeek-api-key', openaiKey.trim());
+    else localStorage.removeItem('filegeek-api-key');
     flash();
   };
-
   const handleSaveNotionToken = () => {
-    if (notionToken.trim()) {
-      localStorage.setItem('filegeek-notion-token', notionToken.trim());
-    } else {
-      localStorage.removeItem('filegeek-notion-token');
-    }
+    if (notionToken.trim()) localStorage.setItem('filegeek-notion-token', notionToken.trim());
+    else localStorage.removeItem('filegeek-notion-token');
     flash();
   };
+  const handleClearHistory = () => { clearAllSessions(); flash(); };
 
-  const handleClearHistory = () => {
-    clearAllSessions();
-    flash();
-  };
+  const selectSx = { fontFamily: 'var(--font-family)', fontSize: '0.82rem', borderRadius: '10px' };
+  const labelSx = { fontFamily: 'var(--font-family)', fontSize: '0.82rem' };
+  const inputSx = { '& .MuiOutlinedInput-root': { borderRadius: '10px', fontFamily: 'var(--font-family)', fontSize: '0.82rem' } };
 
   return (
-    <Box>
-      <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.1rem', color: '#E5E5E5', mb: 2 }}>
-        SETTINGS
-      </Typography>
+    <Box sx={{ fontFamily: 'var(--font-family)' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5 }}>
+        <Typography sx={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--fg-primary)', fontFamily: 'var(--font-family)' }}>
+          Settings
+        </Typography>
+        {saved && (
+          <Box sx={{ bgcolor: 'rgba(5,150,105,0.1)', border: '1px solid rgba(5,150,105,0.3)', px: 1.5, py: 0.4, borderRadius: '8px' }}>
+            <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--success)', fontFamily: 'var(--font-family)' }}>Saved</Typography>
+          </Box>
+        )}
+      </Box>
 
-      {saved && (
-        <Box sx={{ border: '1px solid #00FF00', p: 1, mb: 2 }}>
-          <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#00FF00' }}>
-            OK: SAVED
-          </Typography>
-        </Box>
-      )}
+      <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
 
-      <Divider sx={{ borderColor: '#333333', my: 2 }} />
-
-      {/* AI Persona */}
-      <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.85rem', color: '#E5E5E5', mb: 0.5 }}>
-        {`// DEFAULT_PERSONA`}
-      </Typography>
-      <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#888', mb: 1.5 }}>
-        Choose the personality FileGeek uses to respond.
-      </Typography>
-      <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-        <InputLabel sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>PERSONA</InputLabel>
-        <Select
-          value={personaId}
-          onChange={(e) => selectPersona(e.target.value)}
-          label="PERSONA"
-          sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
-        >
-          {personas.map((p) => (
-            <MenuItem key={p.id} value={p.id} sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-              {p.label.toUpperCase()}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
-
-      <Divider sx={{ borderColor: '#333333', my: 3 }} />
-
-      {/* Appearance */}
-      <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.85rem', color: '#E5E5E5', mb: 0.5 }}>
-        {`// APPEARANCE`}
-      </Typography>
-      <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#888', mb: 1.5 }}>
-        Customize the visual theme and typography of FileGeek.
-      </Typography>
-
-      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+      <Section label="AI Persona">
         <FormControl fullWidth size="small">
-          <InputLabel sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>THEME_PRESET</InputLabel>
-          <Select
-            value={themeName}
-            onChange={(e) => setTheme(e.target.value)}
-            label="THEME_PRESET"
-            sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
-          >
-            {THEME_NAMES.map((t) => (
-              <MenuItem key={t} value={t} sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                {t.toUpperCase()}
-              </MenuItem>
+          <InputLabel sx={labelSx}>Persona</InputLabel>
+          <Select value={personaId} onChange={(e) => selectPersona(e.target.value)} label="Persona" sx={selectSx}>
+            {personas.map((p) => (
+              <MenuItem key={p.id} value={p.id} sx={{ fontFamily: 'var(--font-family)', fontSize: '0.82rem' }}>{p.label}</MenuItem>
             ))}
           </Select>
         </FormControl>
+      </Section>
 
-        <FormControl fullWidth size="small">
-          <InputLabel sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>TYPOGRAPHY</InputLabel>
-          <Select
-            value={font}
-            onChange={(e) => setFont(e.target.value)}
-            label="TYPOGRAPHY"
-            sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
-          >
-            {FONT_NAMES.map((f) => (
-              <MenuItem key={f} value={f} sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                {f.toUpperCase()}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Box>
+      <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
 
-      <Divider sx={{ borderColor: '#333333', my: 3 }} />
-
-      {/* Gemini API Key */}
-      <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.85rem', color: '#E5E5E5', mb: 0.5 }}>
-        {`// GEMINI_API_KEY`}
-      </Typography>
-      <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#888', mb: 1.5 }}>
-        Used when AI_PROVIDER=gemini. Get one from Google AI Studio.
-      </Typography>
-      <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-        <TextField
-          fullWidth
-          size="small"
-          type="password"
-          placeholder="AIza..."
-          value={geminiKey}
-          onChange={(e) => setGeminiKey(e.target.value)}
-          InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-        />
-        <Box
-          onClick={handleSaveGemini}
-          sx={{
-            cursor: 'pointer',
-            border: '1px solid #333',
-            px: 1.5,
-            display: 'flex',
-            alignItems: 'center',
-            fontFamily: 'monospace',
-            fontSize: '0.75rem',
-            fontWeight: 700,
-            color: '#E5E5E5',
-            whiteSpace: 'nowrap',
-            '&:hover': { borderColor: '#00FF00', color: '#00FF00' },
-          }}
-        >
-          [ SAVE ]
+      <Section label="Appearance">
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <FormControl fullWidth size="small">
+            <InputLabel sx={labelSx}>Theme</InputLabel>
+            <Select value={themeName} onChange={(e) => setTheme(e.target.value)} label="Theme" sx={selectSx}>
+              {THEME_NAMES.map((t) => (
+                <MenuItem key={t} value={t} sx={{ fontFamily: 'var(--font-family)', fontSize: '0.82rem' }}>
+                  {t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth size="small">
+            <InputLabel sx={labelSx}>Font</InputLabel>
+            <Select value={font} onChange={(e) => setFont(e.target.value)} label="Font" sx={selectSx}>
+              {FONT_NAMES.map((f) => (
+                <MenuItem key={f} value={f} sx={{ fontFamily: 'var(--font-family)', fontSize: '0.82rem' }}>
+                  {f.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </Box>
-      </Box>
+      </Section>
 
-      <Divider sx={{ borderColor: '#333333', my: 3 }} />
+      <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
 
-      {/* OpenAI API Key */}
-      <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.85rem', color: '#E5E5E5', mb: 0.5 }}>
-        {`// OPENAI_API_KEY`}
-      </Typography>
-      <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#888', mb: 1.5 }}>
-        Used when AI_PROVIDER=openai, and required for text-to-speech.
-      </Typography>
-      <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-        <TextField
-          fullWidth
-          size="small"
-          type="password"
-          placeholder="sk-..."
-          value={openaiKey}
-          onChange={(e) => setOpenaiKey(e.target.value)}
-          InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-        />
-        <Box
-          onClick={handleSaveOpenai}
-          sx={{
-            cursor: 'pointer',
-            border: '1px solid #333',
-            px: 1.5,
-            display: 'flex',
-            alignItems: 'center',
-            fontFamily: 'monospace',
-            fontSize: '0.75rem',
-            fontWeight: 700,
-            color: '#E5E5E5',
-            whiteSpace: 'nowrap',
-            '&:hover': { borderColor: '#00FF00', color: '#00FF00' },
-          }}
-        >
-          [ SAVE ]
+      <Section label="Gemini API Key" description="Required for Gemini 2.0 Flash and 2.5 Pro models.">
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <TextField fullWidth size="small" type="password" placeholder="AIza..." value={geminiKey}
+            onChange={(e) => setGeminiKey(e.target.value)} sx={inputSx} />
+          <SaveBtn onClick={handleSaveGemini} />
         </Box>
-      </Box>
+      </Section>
 
-      <Divider sx={{ borderColor: '#333333', my: 3 }} />
+      <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
 
-      {/* Notion Integration */}
-      <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.85rem', color: '#E5E5E5', mb: 0.5 }}>
-        {`// NOTION_INTEGRATION`}
-      </Typography>
-      <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#888', mb: 1.5 }}>
-        Provide your Notion integration token to enable exporting to Notion.
-      </Typography>
-      <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-        <TextField
-          fullWidth
-          size="small"
-          type="password"
-          placeholder="ntn_..."
-          value={notionToken}
-          onChange={(e) => setNotionToken(e.target.value)}
-          InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-        />
-        <Box
-          onClick={handleSaveNotionToken}
-          sx={{
-            cursor: 'pointer',
-            border: '1px solid #333',
-            px: 1.5,
-            display: 'flex',
-            alignItems: 'center',
-            fontFamily: 'monospace',
-            fontSize: '0.75rem',
-            fontWeight: 700,
-            color: '#E5E5E5',
-            whiteSpace: 'nowrap',
-            '&:hover': { borderColor: '#00FF00', color: '#00FF00' },
-          }}
-        >
-          [ SAVE ]
+      <Section label="OpenAI API Key" description="Required for GPT-4o Mini and GPT-4o models.">
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <TextField fullWidth size="small" type="password" placeholder="sk-..." value={openaiKey}
+            onChange={(e) => setOpenaiKey(e.target.value)} sx={inputSx} />
+          <SaveBtn onClick={handleSaveOpenai} />
         </Box>
-      </Box>
+      </Section>
 
-      <Divider sx={{ borderColor: '#333333', my: 3 }} />
+      <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
 
-      {/* Clear History */}
-      <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.85rem', color: '#E5E5E5', mb: 0.5 }}>
-        {`// DATA`}
-      </Typography>
-      <Box
-        onClick={handleClearHistory}
-        sx={{
-          cursor: 'pointer',
-          border: '1px solid #FF0000',
-          px: 1.5,
-          py: 1,
-          display: 'inline-block',
-          fontFamily: 'monospace',
-          fontSize: '0.75rem',
-          fontWeight: 700,
-          color: '#FF0000',
-          '&:hover': { bgcolor: '#FF0000', color: '#000' },
-        }}
-      >
-        [ CLEAR ALL HISTORY ]
-      </Box>
+      <Section label="Notion Integration" description="Token to export flashcards and notes to Notion.">
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <TextField fullWidth size="small" type="password" placeholder="ntn_..." value={notionToken}
+            onChange={(e) => setNotionToken(e.target.value)} sx={inputSx} />
+          <SaveBtn onClick={handleSaveNotionToken} />
+        </Box>
+      </Section>
+
+      <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
+
+      <Section label="Data">
+        <Button variant="outlined" size="small" onClick={handleClearHistory}
+          sx={{
+            borderColor: 'var(--error)', color: 'var(--error)',
+            fontFamily: 'var(--font-family)', fontSize: '0.78rem', fontWeight: 600,
+            borderRadius: '10px', textTransform: 'none',
+            '&:hover': { bgcolor: 'rgba(220,38,38,0.06)', borderColor: 'var(--error)' },
+          }}
+        >Clear all history</Button>
+      </Section>
     </Box>
   );
 }

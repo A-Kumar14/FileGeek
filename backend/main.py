@@ -1,6 +1,7 @@
 """FileGeek FastAPI application — replaces app.py."""
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -123,6 +124,38 @@ ALLOWED_URL_PREFIXES = (
 )
 
 
+# ── ETag / Redis cache helpers ─────────────────────────────────────────────────
+_redis_client = None
+
+
+def _get_redis():
+    """Return a Redis client if available, else None (graceful fallback)."""
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    try:
+        import redis as _redis_lib
+        r = _redis_lib.from_url(Config.REDIS_URL, socket_connect_timeout=1, decode_responses=True)
+        r.ping()
+        _redis_client = r
+        return r
+    except Exception:
+        return None
+
+
+def _make_etag(data: dict | list) -> str:
+    """Compute a quoted MD5 ETag from JSON-serialisable data."""
+    digest = hashlib.md5(
+        json.dumps(data, sort_keys=True, default=str).encode()
+    ).hexdigest()
+    return f'"{digest}"'
+
+
+def _check_etag(request: Request, etag: str) -> bool:
+    """Return True when the client's If-None-Match matches the ETag (304 path)."""
+    return request.headers.get("if-none-match") == etag
+
+
 # ── Health & Personas ──────────────────────────────────────────────────────────
 @app.get("/health")
 async def health_check():
@@ -176,8 +209,24 @@ async def workers_status():
 
 
 @app.get("/personas")
-async def list_personas():
-    return {"personas": PersonaManager.list_all()}
+async def list_personas(request: Request, response: Response):
+    data = {"personas": PersonaManager.list_all()}
+
+    # /personas is static — ETag is computed once and stored in Redis
+    r = _get_redis()
+    cache_key = "etag:personas"
+    etag = r.get(cache_key) if r else None
+    if not etag:
+        etag = _make_etag(data)
+        if r:
+            r.set(cache_key, etag, ex=86400)  # 24 h TTL — personas rarely change
+
+    if _check_etag(request, etag):
+        return Response(status_code=304)
+
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return data
 
 
 # ── Celery task polling ────────────────────────────────────────────────────────
@@ -250,7 +299,7 @@ async def s3_presign(
 
 # ── Sessions ───────────────────────────────────────────────────────────────────
 @app.get("/sessions")
-async def list_sessions(current_user: CurrentUser, db: DB):
+async def list_sessions(request: Request, response: Response, current_user: CurrentUser, db: DB):
     result = await db.execute(
         select(StudySession)
         .where(StudySession.user_id == current_user.id)
@@ -258,7 +307,20 @@ async def list_sessions(current_user: CurrentUser, db: DB):
         .limit(50)
     )
     sessions = result.scalars().all()
-    return {"sessions": [s.to_dict() for s in sessions]}
+    data = {"sessions": [s.to_dict() for s in sessions]}
+
+    etag = _make_etag(data)
+    if _check_etag(request, etag):
+        return Response(status_code=304)
+
+    # Cache ETag in Redis keyed by user (short TTL — sessions mutate frequently)
+    r = _get_redis()
+    if r:
+        r.set(f"etag:sessions:{current_user.id}", etag, ex=30)
+
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "private, no-cache"
+    return data
 
 
 @app.post("/sessions", status_code=201)
@@ -271,6 +333,10 @@ async def create_session(data: SessionCreate, current_user: CurrentUser, db: DB)
     db.add(session)
     await db.commit()
     await db.refresh(session)
+    # Invalidate sessions ETag so next GET reflects the new session
+    r = _get_redis()
+    if r:
+        r.delete(f"etag:sessions:{current_user.id}")
     return {"session": session.to_dict()}
 
 
@@ -306,6 +372,10 @@ async def delete_session(session_id: str, current_user: CurrentUser, db: DB):
     )
     await db.delete(session)
     await db.commit()
+    # Invalidate sessions ETag
+    r = _get_redis()
+    if r:
+        r.delete(f"etag:sessions:{current_user.id}")
     return {"message": "Session deleted"}
 
 

@@ -67,7 +67,7 @@ function ThemeCard({ name, active, onClick }) {
           }}
         >
           {THEME_LABELS[name]}
-          {active && ' ✓'}
+          {active && ''}
         </Typography>
       </Box>
     </Box>
@@ -214,7 +214,7 @@ export default function SettingsPage() {
               }}
             >
               {label}
-              {layoutMode === value && ' ✓'}
+              {layoutMode === value && ''}
             </Typography>
             <Typography sx={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.65rem', color: 'var(--fg-dim)' }}>
               {desc}

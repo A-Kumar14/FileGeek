@@ -39,6 +39,8 @@ export function ChatProvider({ children }) {
 
   const { sendMessage: apiSendMessage } = useChat();
   const fileCtx = useFile();
+  const setRemoteFile = fileCtx?.setRemoteFile;
+  const removeFile = fileCtx?.removeFile;
   const { personaId } = usePersona();
   const { selectedModel } = useModelContext();
   const queryClient = useQueryClient();
@@ -142,8 +144,16 @@ export function ChatProvider({ children }) {
     if (token) {
       try {
         const session = await apiGetSession(sessionId);
-        if (session && session.messages) {
-          setMessages(session.messages);
+        if (session) {
+          if (session.documents && session.documents.length > 0) {
+            const doc = session.documents[0];
+            if (setRemoteFile) setRemoteFile(doc.file_url, doc.file_name, doc.file_type);
+          } else {
+            if (removeFile) removeFile();
+          }
+          if (session.messages) {
+            setMessages(session.messages);
+          }
           return;
         }
       } catch {
@@ -153,9 +163,10 @@ export function ChatProvider({ children }) {
 
     const localSession = chatSessions.find((s) => s.id === sessionId);
     if (localSession) {
+      if (removeFile) removeFile();
       setMessages(localSession.messages || []);
     }
-  }, [chatSessions]);
+  }, [chatSessions, setRemoteFile, removeFile]);
 
   const removeSession = useCallback(async (sessionId) => {
     const token = localStorage.getItem('filegeek-token');
@@ -198,20 +209,21 @@ export function ChatProvider({ children }) {
   }, [documentIndexing]);
 
   const sendMessage = useCallback(async (question) => {
-    if (!fileCtx?.file || !question.trim()) return;
+    if (!question.trim()) return;
 
-    const allFiles = fileCtx.files || [];
+    const allFiles = fileCtx?.files || [];
     const completedFiles = allFiles.filter(
       (entry) => entry.uploadStatus === 'complete' && entry.uploadedUrl
     );
     const filesToSend = completedFiles.length > 0
       ? completedFiles
       : allFiles.filter((entry) => entry.localFile);
-    if (filesToSend.length === 0) return;
 
     let sessionId = activeSessionId;
     if (!sessionId) {
-      sessionId = await startNewSession(fileCtx.file.name, fileCtx.fileType);
+      const defaultName = fileCtx?.file ? fileCtx.file.name : 'New Chat';
+      const defaultType = fileCtx?.fileType || 'general';
+      sessionId = await startNewSession(defaultName, defaultType);
 
       // Index documents into the new session
       for (const entry of completedFiles) {
@@ -231,7 +243,7 @@ export function ChatProvider({ children }) {
       let result;
 
       // Try server-backed session message first
-      if (token && completedFiles.length > 0) {
+      if (token && sessionId) {
         try {
           stopGenerationRef.current = false;
           let accumulatedContent = '';

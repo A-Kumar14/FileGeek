@@ -138,8 +138,8 @@ export default function FlashcardPopupDialog({ open, onClose, cards = [], topic,
                             <Typography sx={{ fontFamily: 'monospace', fontSize: '2rem', fontWeight: 700, color: '#00FF00' }}>{known}/{cards.length}</Typography>
                             <Typography sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#E5E5E5', mt: 0.5 }}>cards mastered</Typography>
                             <Box sx={{ display: 'flex', justifyContent: 'center', gap: 3, mt: 1.5 }}>
-                                <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#00FF00' }}>✓ Known: {known}</Typography>
-                                <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#FFAA00' }}>↻ Reviewing: {reviewing}</Typography>
+                                <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#00FF00' }}>Known: {known}</Typography>
+                                <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#FFAA00' }}>Reviewing: {reviewing}</Typography>
                             </Box>
                         </Box>
                         <Box sx={{ display: 'flex', gap: 1 }}>
@@ -219,14 +219,14 @@ export default function FlashcardPopupDialog({ open, onClose, cards = [], topic,
                                     fullWidth
                                     sx={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 700, color: '#FFAA00', border: '1px solid #FFAA00', borderRadius: 0, py: 1, '&:hover': { bgcolor: '#1A1400' } }}
                                 >
-                                    [↻ STILL LEARNING]
+                                    [STILL LEARNING]
                                 </Button>
                                 <Button
                                     onClick={(e) => { e.stopPropagation(); saveAndAdvance('known'); }}
                                     fullWidth
                                     sx={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 700, color: '#00FF00', border: '1px solid #00FF00', borderRadius: 0, py: 1, '&:hover': { bgcolor: '#001A00' } }}
                                 >
-                                    [✓ GOT IT]
+                                    [GOT IT]
                                 </Button>
                             </Box>
                         ) : (

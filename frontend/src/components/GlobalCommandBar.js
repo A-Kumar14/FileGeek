@@ -1,40 +1,52 @@
-import React, { useRef, useState } from 'react';
-import { Box, TextField, IconButton, Typography, Menu, MenuItem } from '@mui/material';
+import React, { useRef, useState, useEffect } from 'react';
+import { Box, TextField, IconButton, Typography, Menu, MenuItem, Tooltip } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import StopIcon from '@mui/icons-material/Stop';
+import MicIcon from '@mui/icons-material/Mic';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { useChatContext } from '../contexts/ChatContext';
 import { useModelContext } from '../contexts/ModelContext';
+import { useFile } from '../contexts/FileContext';
 
 const CHAT_MODELS = [
-    { id: 'gemini-2.0-flash', label: 'GEMINI 2.0', badge: 'FREE' },
-    { id: 'gpt-4o-mini', label: 'GPT-4o MINI', badge: 'FREE' },
-    { id: 'gemini-2.5-pro', label: 'GEMINI 2.5 PRO', badge: 'PRO' },
+    { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', badge: 'FREE' },
+    { id: 'gpt-4o-mini', label: 'GPT-4o Mini', badge: 'FREE' },
+    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', badge: 'PRO' },
     { id: 'gpt-4o', label: 'GPT-4o', badge: 'PRO' },
 ];
 
-export default function GlobalCommandBar() {
+export default function GlobalCommandBar({ sidebarOffset = 0 }) {
     const inputRef = useRef(null);
-    const { addMessage, isLoading, stopGeneration, activeSessionId } = useChatContext();
+    const fileInputRef = useRef(null);
+    const { addMessage, isLoading, stopGeneration } = useChatContext();
     const { selectedModel, setSelectedModel } = useModelContext();
+    const { handleFileSelect } = useFile();
 
     const [input, setInput] = useState('');
+    const [deepThink, setDeepThink] = useState(false);
     const [modelMenuAnchor, setModelMenuAnchor] = useState(null);
 
-    const activeModelLabel = CHAT_MODELS.find(m => m.id === selectedModel)?.label || selectedModel.toUpperCase();
+    const activeModel = CHAT_MODELS.find(m => m.id === selectedModel) || CHAT_MODELS[0];
+
+    // Listen for suggestion card fills
+    useEffect(() => {
+        const handler = (e) => {
+            setInput(e.detail || '');
+            setTimeout(() => inputRef.current?.focus(), 50);
+        };
+        window.addEventListener('fg:set-input', handler);
+        return () => window.removeEventListener('fg:set-input', handler);
+    }, []);
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
+        e?.preventDefault();
         if (!input.trim() || isLoading) return;
-
-        // Auto-detect commands
-        let userMsg = input;
+        let userMsg = input.trim();
         if (userMsg.startsWith('//')) {
-            // Example extension point for local terminal commands or socratic parsing.
             userMsg = userMsg.replace('//', '').trim();
         }
-
         setInput('');
-        // Optionally focus document after submit
         await addMessage(userMsg);
     };
 
@@ -46,98 +58,230 @@ export default function GlobalCommandBar() {
     };
 
     return (
-        <Box
-            component="form"
-            onSubmit={handleSubmit}
-            sx={{
-                position: 'fixed',
-                bottom: 24,
-                left: '50%',
-                transform: 'translateX(-50%)',
-                width: '90%',
-                maxWidth: 720, // Keep narrow like a terminal prompt
-                zIndex: 1000,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                bgcolor: 'var(--bg-secondary, #111)',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                boxShadow: 'var(--shadow)',
-                p: 1,
-                transition: 'border-color 0.15s, box-shadow 0.15s',
-                '&:focus-within': {
-                    border: '1px solid var(--accent)',
-                    boxShadow: 'var(--accent-glow)',
-                }
-            }}
-        >
-            <Box sx={{ pl: 1, color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.1rem' }}>
-                {'//'}
-            </Box>
-            <TextField
-                inputRef={inputRef}
-                fullWidth
-                multiline
-                maxRows={4}
-                placeholder="Enter command or query..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                variant="standard"
-                disabled={!activeSessionId}
-                InputProps={{
-                    disableUnderline: true,
-                    sx: {
-                        fontFamily: 'var(--font-mono)',
-                        color: 'var(--fg-primary)',
-                        fontSize: '0.9rem',
-                        '& ::placeholder': { color: 'var(--fg-dim)', opacity: 1 }
-                    }
-                }}
+        <>
+            {/* Hidden file input */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                style={{ display: 'none' }}
+                onChange={(e) => e.target.files[0] && handleFileSelect(e.target.files[0])}
             />
 
-            {/* Inline Model Selector */}
             <Box
-                onClick={(e) => setModelMenuAnchor(e.currentTarget)}
+                component="form"
+                onSubmit={handleSubmit}
                 sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.5,
+                    position: 'fixed',
+                    bottom: 20,
+                    left: `calc(50% + ${sidebarOffset / 2}px)`,
+                    transform: 'translateX(-50%)',
+                    width: { xs: '96%', sm: `calc(90% - ${sidebarOffset}px)`, md: `calc(80% - ${sidebarOffset}px)` },
+                    maxWidth: 740,
+                    zIndex: 1100,
+                    borderRadius: '20px',
+                    background: 'rgba(255,255,255,0.92)',
+                    backdropFilter: 'blur(20px)',
+                    WebkitBackdropFilter: 'blur(20px)',
                     border: '1px solid var(--border)',
-                    borderRadius: '4px',
-                    px: 1,
-                    py: 0.25,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    '&:hover': { borderColor: 'var(--fg-primary)' },
+                    boxShadow: 'var(--shadow)',
+                    transition: 'all 0.22s ease',
+                    perspective: '800px',
+                    '&:focus-within': {
+                        border: '1px solid var(--border-focus)',
+                        boxShadow: 'var(--accent-glow)',
+                        transform: 'translateX(-50%) translateY(-2px)',
+                    },
                 }}
             >
-                <Typography sx={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--accent)', fontWeight: 700 }}>
-                    {activeModelLabel}
-                </Typography>
-                <Typography sx={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--fg-dim)' }}>▾</Typography>
+                {/* ── Top row: input + send button ── */}
+                <Box sx={{ display: 'flex', alignItems: 'flex-end', px: 2, pt: 1.5, pb: 1, gap: 1 }}>
+                    <TextField
+                        inputRef={inputRef}
+                        fullWidth
+                        multiline
+                        maxRows={5}
+                        placeholder="Ask me anything..."
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        variant="standard"
+                        InputProps={{
+                            disableUnderline: true,
+                            sx: {
+                                fontFamily: 'var(--font-family)',
+                                color: 'var(--fg-primary)',
+                                fontSize: '1rem',
+                                lineHeight: 1.5,
+                                '& textarea::placeholder': { color: 'var(--fg-dim)', opacity: 1 },
+                                '& input::placeholder': { color: 'var(--fg-dim)', opacity: 1 },
+                            },
+                        }}
+                    />
+
+                    {/* Send / Stop button */}
+                    {isLoading ? (
+                        <IconButton
+                            onClick={stopGeneration}
+                            sx={{
+                                width: 38,
+                                height: 38,
+                                borderRadius: '50%',
+                                flexShrink: 0,
+                                bgcolor: '#DC2626',
+                                color: '#FFFFFF',
+                                '&:hover': {
+                                    bgcolor: '#B91C1C',
+                                    transform: 'scale(1.06)',
+                                },
+                            }}
+                        >
+                            <StopIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                    ) : (
+                        <IconButton
+                            type="submit"
+                            disabled={!input.trim()}
+                            sx={{
+                                width: 38,
+                                height: 38,
+                                borderRadius: '50%',
+                                flexShrink: 0,
+                                bgcolor: input.trim()
+                                    ? 'var(--accent)'
+                                    : 'var(--accent-dim)',
+                                color: input.trim() ? '#FFFFFF' : 'var(--accent)',
+                                transition: 'all 0.18s ease',
+                                '&:hover': {
+                                    bgcolor: 'var(--accent)',
+                                    opacity: 0.88,
+                                    transform: 'scale(1.06)',
+                                },
+                                '&.Mui-disabled': {
+                                    bgcolor: 'var(--accent-dim)',
+                                    color: 'var(--accent)',
+                                    opacity: 0.4,
+                                },
+                            }}
+                        >
+                            <SendIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                    )}
+                </Box>
+
+                {/* ── Divider ── */}
+                <Box sx={{ height: '1px', mx: 2, background: 'var(--accent-dim)' }} />
+
+                {/* ── Bottom row: model, deep think, mic, attach ── */}
+                <Box sx={{ display: 'flex', alignItems: 'center', px: 1.5, py: 0.75, gap: 0.75, flexWrap: 'wrap' }}>
+
+                    {/* Model selector pill */}
+                    <Box
+                        onClick={(e) => setModelMenuAnchor(e.currentTarget)}
+                        sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                            border: '1px solid var(--border)',
+                            borderRadius: '20px',
+                            px: 1.5,
+                            py: 0.4,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s',
+                            '&:hover': { background: 'var(--accent-dim)', borderColor: 'var(--border-focus)' },
+                        }}
+                    >
+                        <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--accent)' }}>
+                            {activeModel.label}
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.6rem', color: '#94A3B8' }}>▾</Typography>
+                    </Box>
+
+                    {/* Deep Think toggle pill */}
+                    <Tooltip title="Deep Think — slower but more thorough">
+                        <Box
+                            onClick={() => setDeepThink(v => !v)}
+                            sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.5,
+                                border: deepThink ? '1px solid var(--border-focus)' : '1px solid var(--border)',
+                                borderRadius: '20px',
+                                px: 1.5,
+                                py: 0.4,
+                                cursor: 'pointer',
+                                background: deepThink ? 'var(--accent-dim)' : 'transparent',
+                                transition: 'all 0.15s',
+                                '&:hover': { background: 'var(--accent-dim)' },
+                            }}
+                        >
+                            <AutoAwesomeIcon sx={{ fontSize: 13, color: deepThink ? 'var(--accent)' : '#94A3B8' }} />
+                            <Typography sx={{ fontSize: '0.72rem', fontWeight: 500, color: deepThink ? 'var(--accent)' : '#94A3B8' }}>
+                                Deep Think
+                            </Typography>
+                        </Box>
+                    </Tooltip>
+
+                    {/* Mic button */}
+                    <Tooltip title="Voice input">
+                        <IconButton
+                            size="small"
+                            sx={{
+                                color: '#94A3B8',
+                                width: 30,
+                                height: 30,
+                                '&:hover': { color: 'var(--accent)', background: 'var(--accent-dim)' },
+                            }}
+                        >
+                            <MicIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                    </Tooltip>
+
+                    <Box sx={{ flex: 1 }} />
+
+                    {/* Attach file */}
+                    <Tooltip title="Attach a file">
+                        <Box
+                            onClick={() => fileInputRef.current?.click()}
+                            sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.5,
+                                cursor: 'pointer',
+                                px: 1,
+                                py: 0.4,
+                                borderRadius: '20px',
+                                transition: 'all 0.15s',
+                                '&:hover': { background: 'var(--accent-dim)' },
+                            }}
+                        >
+                            <AttachFileIcon sx={{ fontSize: 14, color: '#94A3B8' }} />
+                            <Typography sx={{ fontSize: '0.72rem', color: '#94A3B8' }}>Attach file</Typography>
+                        </Box>
+                    </Tooltip>
+                </Box>
             </Box>
 
+            {/* Model menu */}
             <Menu
                 anchorEl={modelMenuAnchor}
                 open={Boolean(modelMenuAnchor)}
                 onClose={() => setModelMenuAnchor(null)}
-                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-                transformOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
                 PaperProps={{
                     sx: {
-                        bgcolor: 'var(--bg-secondary)',
+                        background: 'rgba(255,255,255,0.96)',
+                        backdropFilter: 'blur(16px)',
                         border: '1px solid var(--border)',
-                        borderRadius: '4px',
-                        mt: -1,
+                        borderRadius: '16px',
                         boxShadow: 'var(--shadow)',
+                        mt: -1,
                     },
                 }}
             >
-                <Box sx={{ px: 1.5, pt: 1, pb: 0.5 }}>
-                    <Typography sx={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                        SELECT MODEL
+                <Box sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
+                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                        Select Model
                     </Typography>
                 </Box>
                 {CHAT_MODELS.map((m) => (
@@ -146,61 +290,35 @@ export default function GlobalCommandBar() {
                         selected={m.id === selectedModel}
                         onClick={() => { setSelectedModel(m.id); setModelMenuAnchor(null); }}
                         sx={{
-                            py: 0.5,
-                            px: 1.5,
+                            py: 0.75,
+                            px: 2,
                             display: 'flex',
                             justifyContent: 'space-between',
-                            gap: 1.5,
-                            '&.Mui-selected': { bgcolor: 'var(--accent-dim)', borderLeft: '2px solid var(--accent)' },
-                            '&:hover': { bgcolor: 'var(--bg-hover)' },
+                            gap: 2,
+                            borderRadius: '10px',
+                            mx: 0.5,
+                            mb: 0.25,
+                            '&.Mui-selected': { background: 'var(--accent-dim)' },
+                            '&:hover': { background: 'var(--accent-dim)' },
                         }}
                     >
-                        <Typography sx={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--fg-primary)', fontWeight: m.id === selectedModel ? 700 : 400 }}>
+                        <Typography sx={{ fontSize: '0.82rem', fontWeight: m.id === selectedModel ? 600 : 400, color: '#0F172A' }}>
                             {m.label}
                         </Typography>
                         <Typography sx={{
-                            fontFamily: 'var(--font-mono)',
                             fontSize: '0.6rem',
-                            color: m.badge === 'FREE' ? 'var(--accent)' : '#FF00FF',
-                            border: `1px solid ${m.badge === 'FREE' ? 'var(--accent)' : '#FF00FF'}`,
-                            px: 0.5,
-                            borderRadius: '2px',
+                            fontWeight: 600,
+                            color: m.badge === 'FREE' ? '#059669' : 'var(--accent)',
+                            border: `1px solid ${m.badge === 'FREE' ? '#059669' : 'var(--accent)'}`,
+                            px: 0.75,
+                            py: 0.15,
+                            borderRadius: '8px',
                         }}>
                             {m.badge}
                         </Typography>
                     </MenuItem>
                 ))}
             </Menu>
-
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                {!isLoading ? (
-                    <IconButton
-                        type="submit"
-                        disabled={!input.trim() || !activeSessionId}
-                        sx={{
-                            color: 'var(--fg-primary)',
-                            borderRadius: '4px',
-                            p: 0.5,
-                            '&:hover': { bgcolor: 'var(--bg-hover)' },
-                            '&.Mui-disabled': { color: 'var(--fg-dim)' }
-                        }}
-                    >
-                        <SendIcon fontSize="small" />
-                    </IconButton>
-                ) : (
-                    <IconButton
-                        onClick={stopGeneration}
-                        sx={{
-                            color: 'var(--error)',
-                            borderRadius: '4px',
-                            p: 0.5,
-                            '&:hover': { bgcolor: 'var(--bg-hover)' }
-                        }}
-                    >
-                        <StopIcon fontSize="small" />
-                    </IconButton>
-                )}
-            </Box>
-        </Box>
+        </>
     );
 }

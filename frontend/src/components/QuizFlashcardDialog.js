@@ -263,7 +263,7 @@ export default function QuizFlashcardDialog({ open, onClose, questions }) {
                 >
                   {/* Verdict */}
                   <Typography sx={{ fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 700, color: isCorrect ? '#00FF00' : '#FF0000' }}>
-                    {isCorrect ? '[ Correct ✓ ]' : '[ Incorrect ✗ ]'}
+                    {isCorrect ? '[ Correct  ]' : '[ Incorrect  ]'}
                   </Typography>
 
                   {/* Correct answer */}

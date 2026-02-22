@@ -1,5 +1,4 @@
 import React, { createContext, useState, useContext, useCallback, useMemo } from 'react';
-import { uploadFiles } from '../uploadthing';
 
 const FileContext = createContext(null);
 
@@ -49,73 +48,14 @@ function createFileEntry(localFile) {
 }
 
 export function FileProvider({ children }) {
-  const [files, setFiles] = useState([]);
-  const [activeFileIndex, setActiveFileIndex] = useState(0);
+  const [fileEntry, setFileEntry] = useState(null);
   const [targetPage, setTargetPage] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [activeSourceHighlight, setActiveSourceHighlight] = useState(null);
 
-  // Backward compat: `file` returns the raw File object for PdfViewer/ImageViewer/TextViewer
-  const file = useMemo(() => {
-    const entry = files[activeFileIndex];
-    return entry?.localFile || null;
-  }, [files, activeFileIndex]);
-
-  const fileType = useMemo(() => {
-    const entry = files[activeFileIndex];
-    return getFileType(entry);
-  }, [files, activeFileIndex]);
-
-  const updateFileEntry = useCallback((index, updates) => {
-    setFiles((prev) => {
-      const updated = [...prev];
-      if (updated[index]) {
-        updated[index] = { ...updated[index], ...updates };
-      }
-      return updated;
-    });
-  }, []);
-
-  const startUpload = useCallback(async (fileEntries, startIndex) => {
-    const localFiles = fileEntries.map((e) => e.localFile);
-
-    // Mark all as uploading
-    fileEntries.forEach((_, i) => {
-      updateFileEntry(startIndex + i, { uploadStatus: 'uploading', uploadProgress: 0 });
-    });
-
-    try {
-      // Get JWT token for auth header
-      const token = localStorage.getItem('filegeek-token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
-      const results = await uploadFiles('documentUploader', {
-        files: localFiles,
-        headers,
-        onUploadProgress: ({ file: progressFile, progress }) => {
-          const idx = fileEntries.findIndex((e) => e.localFile.name === progressFile);
-          if (idx !== -1) {
-            updateFileEntry(startIndex + idx, { uploadProgress: progress });
-          }
-        },
-      });
-
-      results.forEach((result, i) => {
-        updateFileEntry(startIndex + i, {
-          uploadStatus: 'complete',
-          uploadProgress: 100,
-          uploadedUrl: result.url,
-          uploadedKey: result.key,
-        });
-      });
-    } catch (err) {
-      console.error('Upload failed:', err);
-      fileEntries.forEach((_, i) => {
-        updateFileEntry(startIndex + i, { uploadStatus: 'error', uploadProgress: 0 });
-      });
-    }
-  }, [updateFileEntry]);
+  const file = fileEntry?.localFile || fileEntry?.uploadedUrl || null;
+  const fileType = getFileType(fileEntry);
 
   const handleFileSelect = useCallback((selectedFile) => {
     if (!selectedFile) return;
@@ -125,48 +65,39 @@ export function FileProvider({ children }) {
 
     const entry = createFileEntry(selectedFile);
 
-    setFiles((prev) => {
-      let newFiles;
-      let insertIndex;
-      if (prev.length >= MAX_FILES) {
-        newFiles = [...prev];
-        insertIndex = prev.length - 1;
-        newFiles[insertIndex] = entry;
-      } else {
-        insertIndex = prev.length;
-        newFiles = [...prev, entry];
-      }
-      // Trigger upload after state update
-      setTimeout(() => startUpload([entry], insertIndex), 0);
-      return newFiles;
-    });
+    // Auto-mark complete for simple local viewing
+    entry.uploadStatus = 'complete';
+    entry.uploadProgress = 100;
 
-    setActiveFileIndex((prev) => {
-      return files.length < MAX_FILES ? files.length : files.length - 1;
+    setFileEntry(entry);
+    setTargetPage(null);
+    setCurrentPage(1);
+    setTotalPages(0);
+  }, []);
+
+  const setRemoteFile = useCallback((url, name, type) => {
+    setFileEntry({
+      localFile: null,
+      uploadStatus: 'complete',
+      uploadProgress: 100,
+      uploadedUrl: url,
+      uploadedKey: null,
+      fileName: name || 'Document',
+      fileSize: 0,
+      fileType: type || 'pdf',
     });
     setTargetPage(null);
     setCurrentPage(1);
     setTotalPages(0);
-  }, [files.length, startUpload]);
+  }, []);
 
-  const retryUpload = useCallback((index) => {
-    const entry = files[index];
-    if (!entry || entry.uploadStatus !== 'error') return;
-    startUpload([entry], index);
-  }, [files, startUpload]);
-
-  const removeFile = useCallback((index) => {
-    if (typeof index !== 'number') {
-      setFiles([]);
-      setActiveFileIndex(0);
-    } else {
-      setFiles((prev) => prev.filter((_, i) => i !== index));
-      setActiveFileIndex((prev) => Math.max(0, prev >= files.length - 1 ? prev - 1 : prev));
-    }
+  const removeFile = useCallback(() => {
+    setFileEntry(null);
     setTargetPage(null);
     setCurrentPage(1);
     setTotalPages(0);
-  }, [files.length]);
+    setActiveSourceHighlight(null);
+  }, []);
 
   const goToPage = useCallback((pageNum) => {
     setTargetPage(pageNum);
@@ -187,13 +118,14 @@ export function FileProvider({ children }) {
     <FileContext.Provider
       value={{
         file,
-        files,
+        files: fileEntry ? [fileEntry] : [], // Backwards compatibility for UI components expecting array
         fileType,
-        activeFileIndex,
-        setActiveFileIndex,
+        activeFileIndex: 0,
+        setActiveFileIndex: () => { },
         handleFileSelect,
+        setRemoteFile,
         removeFile,
-        retryUpload,
+        retryUpload: () => { }, // No-op
         targetPage,
         goToPage,
         goToSourcePage,

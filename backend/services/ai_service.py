@@ -309,6 +309,7 @@ class AIService:
         self.provider = AI_PROVIDER
         self._openai_client_instance = None
         self._gemini_configured = False
+        self._genai_module = None
 
         if self.provider == "gemini":
             api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
@@ -344,12 +345,14 @@ class AIService:
     @property
     def gemini_client(self):
         if not self._gemini_configured:
+            import google.generativeai as _genai  # lazy import — works even if AI_PROVIDER=openai
             api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
             if not api_key:
                 raise ValueError("GOOGLE_API_KEY (or GEMINI_API_KEY) environment variable is required to use Gemini models.")
-            genai.configure(api_key=api_key)
+            _genai.configure(api_key=api_key)
+            self._genai_module = _genai
             self._gemini_configured = True
-        return genai
+        return self._genai_module
 
     @property
     def client(self):

@@ -42,7 +42,7 @@ export default function ModelSelector() {
         display: 'flex',
         alignItems: 'center',
         gap: 1,
-        bgcolor: '#0D0D0D',
+        bgcolor: 'var(--bg-secondary)',
         border: '1px solid #333333',
         p: 1,
       }}
@@ -75,12 +75,12 @@ export default function ModelSelector() {
             '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
               border: 'none',
             },
-            bgcolor: '#000000',
+            bgcolor: 'var(--bg-primary)',
           }}
           MenuProps={{
             PaperProps: {
               sx: {
-                bgcolor: '#0D0D0D',
+                bgcolor: 'var(--bg-secondary)',
                 border: '1px solid #333333',
                 fontFamily: 'monospace',
               },
@@ -109,12 +109,6 @@ export default function ModelSelector() {
               <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                 <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
                   {model.name}
-                </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{ fontFamily: 'monospace', color: '#666666', fontSize: '0.65rem' }}
-                >
-                  {model.description}
                 </Typography>
               </Box>
               <Box

@@ -7,6 +7,7 @@ slowapi==0.1.9
 # Async SQLAlchemy + SQLite
 aiosqlite==0.20.0
 sqlalchemy[asyncio]==2.0.36
+alembic==1.14.1
 
 # Werkzeug still needed for secure_filename
 Werkzeug==3.1.3

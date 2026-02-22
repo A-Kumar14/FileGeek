@@ -9,7 +9,6 @@ import AudioPlayer from './AudioPlayer';
 import ExportMenu from './ExportMenu';
 import FeedbackButtons from './FeedbackButtons';
 import SuggestionChips from './SuggestionChips';
-import { useHighlights } from '../contexts/HighlightsContext';
 import { useFile } from '../contexts/FileContext';
 import { useChatContext } from '../contexts/ChatContext';
 
@@ -95,14 +94,11 @@ function relativeTime(ts) {
 const ChatMessage = React.memo(
   function ChatMessage({ message, previousUserMessage }) {
     const isUser = message.role === 'user';
-    const { pinNote, unpinNote, isNotePinned, getPinnedNoteByMessageId } = useHighlights();
     const { file } = useFile();
     const { sendMessage } = useChatContext();
     const [expanded, setExpanded] = useState(true);
     const [needsCollapse, setNeedsCollapse] = useState(false);
     const contentRef = useRef(null);
-
-    const isPinned = !isUser && isNotePinned(message.message_id);
 
     // Memoize sanitized content to avoid expensive DOMPurify calls on every render
     const sanitizedContent = useMemo(() => sanitize(message.content), [message.content]);
@@ -118,21 +114,6 @@ const ChatMessage = React.memo(
       });
     }
   }, [isUser]);
-
-  const handleTogglePin = () => {
-    if (isPinned) {
-      const note = getPinnedNoteByMessageId(message.message_id);
-      if (note) unpinNote(note.id);
-    } else {
-      pinNote({
-        messageId: message.message_id,
-        question: previousUserMessage?.content || '',
-        answer: message.content,
-        sources: message.sources || [],
-        fileName: file?.name || '',
-      });
-    }
-  };
 
   return (
     <Box
@@ -242,22 +223,6 @@ const ChatMessage = React.memo(
               role="toolbar"
               aria-label="Message actions"
             >
-              <Tooltip title={isPinned ? 'Unpin' : 'Pin to notes'}>
-                <Box
-                  onClick={handleTogglePin}
-                  sx={{
-                    cursor: 'pointer',
-                    color: isPinned ? '#00FF00' : '#888',
-                    fontFamily: 'monospace',
-                    fontSize: '0.7rem',
-                    fontWeight: 700,
-                    '&:hover': { color: '#E5E5E5' },
-                  }}
-                  aria-label={isPinned ? 'Unpin from research notes' : 'Pin to research notes'}
-                >
-                  {isPinned ? '[UNPIN]' : '[PIN]'}
-                </Box>
-              </Tooltip>
               <FeedbackButtons messageId={message.message_id} />
               <AudioPlayer text={message.content} />
               <ExportMenu content={message.content} title="FileGeek Response" />

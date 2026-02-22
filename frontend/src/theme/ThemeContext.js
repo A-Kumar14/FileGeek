@@ -11,8 +11,8 @@ import CssBaseline from '@mui/material/CssBaseline';
 import { THEMES, FONTS, DENSITY } from './themes';
 
 const ThemeContext = createContext({
-  themeName: 'brutalist_dark',
-  font: 'jetbrains_mono',
+  themeName: 'cortex',
+  font: 'inter_sans',
   density: 'compact',
   layoutMode: 'analyst',
   setTheme: () => { },
@@ -32,12 +32,24 @@ function applyVars(map) {
   Object.entries(map).forEach(([k, v]) => root.style.setProperty(k, v));
 }
 
+// Version stamp — bump this when we need to force-reset theme preferences
+const UI_VERSION = '4';
+
 export function ThemeProviderWrapper({ children }) {
-  const [themeName, setThemeName] = useState(
-    () => localStorage.getItem('filegeek-theme') || 'brutalist_dark'
-  );
+  const [themeName, setThemeName] = useState(() => {
+    // Version-gated migration: reset to cortex/inter_sans on new UI version
+    const storedVersion = localStorage.getItem('filegeek-ui-v');
+    if (storedVersion !== UI_VERSION) {
+      localStorage.setItem('filegeek-theme', 'cortex');
+      localStorage.setItem('filegeek-font', 'inter_sans');
+      localStorage.setItem('filegeek-ui-v', UI_VERSION);
+      return 'cortex';
+    }
+    const stored = localStorage.getItem('filegeek-theme');
+    return stored && THEMES[stored] ? stored : 'cortex';
+  });
   const [font, setFontName] = useState(
-    () => localStorage.getItem('filegeek-font') || 'jetbrains_mono'
+    () => localStorage.getItem('filegeek-font') || 'inter_sans'
   );
   const [density, setDensityName] = useState(
     () => localStorage.getItem('fg-density') || 'compact'
@@ -48,8 +60,8 @@ export function ThemeProviderWrapper({ children }) {
 
   // Inject CSS variables whenever any setting changes
   useEffect(() => {
-    applyVars(THEMES[themeName] || THEMES.brutalist_dark);
-    applyVars(FONTS[font] || FONTS.jetbrains_mono);
+    applyVars(THEMES[themeName] || THEMES.cortex);
+    applyVars(FONTS[font] || FONTS.inter_sans);
     applyVars(DENSITY[density] || DENSITY.compact);
     // Expose layout mode as a data attribute for CSS selectors
     document.documentElement.setAttribute('data-layout', layoutMode);
@@ -84,9 +96,10 @@ export function ThemeProviderWrapper({ children }) {
   // MUI's palette internals call lighten()/darken() which CANNOT parse CSS var() strings.
   // CSS variables are still injected on :root via applyVars() above; all plain CSS uses var(--accent) etc.
   const muiTheme = useMemo(() => {
-    const t = THEMES[themeName] || THEMES.brutalist_dark;
+    const t = THEMES[themeName] || THEMES.cortex;
     const isDark = ['brutalist_dark', 'cyber_amber'].includes(themeName);
-    const fontFamily = (FONTS[font] || FONTS.jetbrains_mono)['--font-family'];
+    const fontFamily = (FONTS[font] || FONTS.inter_sans)['--font-family'];
+    const borderRadius = themeName === 'cortex' ? 12 : themeName === 'paper_white' || themeName === 'solarized' ? 8 : 0;
     return createTheme({
       palette: {
         mode: isDark ? 'dark' : 'light',
@@ -102,7 +115,7 @@ export function ThemeProviderWrapper({ children }) {
         // fontFamily is just a CSS string, not parsed by MUI color utils — safe to use directly
         fontFamily,
       },
-      shape: { borderRadius: 2 },
+      shape: { borderRadius },
       components: {
         MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' } } },
         MuiInputBase: { styleOverrides: { root: { fontFamily: 'var(--font-mono)' } } },

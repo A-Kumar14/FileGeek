@@ -29,7 +29,7 @@ function FlipCard({ card, onKnow, onReview }) {
                     display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
                 }}>
                     <Typography sx={{ fontFamily: 'monospace', fontSize: '0.6rem', color: '#555', mb: 1, textTransform: 'uppercase' }}>
-            // FRONT — click to flip
+                        FRONT — click to flip
                     </Typography>
                     <Typography sx={{ fontFamily: 'monospace', fontSize: '0.95rem', color: '#E5E5E5', textAlign: 'center' }}>
                         {card.card_front}
@@ -44,7 +44,7 @@ function FlipCard({ card, onKnow, onReview }) {
                     display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
                 }}>
                     <Typography sx={{ fontFamily: 'monospace', fontSize: '0.6rem', color: '#555', mb: 1, textTransform: 'uppercase' }}>
-            // BACK
+                        BACK
                     </Typography>
                     <Typography sx={{ fontFamily: 'monospace', fontSize: '0.9rem', color: '#E5E5E5', textAlign: 'center' }}>
                         {card.card_back || '(no back text found)'}
@@ -165,7 +165,7 @@ export default function ReviewQueuePage() {
 
                 {!loading && !error && cards.length === 0 && (
                     <Box sx={{ textAlign: 'center', pt: 8 }}>
-                        <Typography sx={{ fontFamily: 'monospace', color: '#00FF00', fontSize: '1.2rem', mb: 1 }}>✓ All caught up!</Typography>
+                        <Typography sx={{ fontFamily: 'monospace', color: '#00FF00', fontSize: '1.2rem', mb: 1 }}>All caught up!</Typography>
                         <Typography sx={{ fontFamily: 'monospace', color: '#555', fontSize: '0.8rem' }}>No cards due for review today. Come back tomorrow.</Typography>
                     </Box>
                 )}
@@ -188,7 +188,7 @@ export default function ReviewQueuePage() {
 
                 {done && (
                     <Box sx={{ textAlign: 'center', pt: 8 }}>
-                        <Typography sx={{ fontFamily: 'monospace', color: '#00FF00', fontSize: '1.2rem', mb: 2 }}>✓ Session Complete!</Typography>
+                        <Typography sx={{ fontFamily: 'monospace', color: '#00FF00', fontSize: '1.2rem', mb: 2 }}>Session Complete!</Typography>
                         <Box sx={{ display: 'flex', justifyContent: 'center', gap: 3, mb: 3 }}>
                             <Box>
                                 <Typography sx={{ fontFamily: 'monospace', fontSize: '1.5rem', color: '#00FF00', fontWeight: 700 }}>{stats.known}</Typography>

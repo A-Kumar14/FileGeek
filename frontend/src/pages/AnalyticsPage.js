@@ -51,13 +51,13 @@ function MasteryBar({ known, reviewing, total }) {
       </Box>
       <Box sx={{ display: 'flex', gap: 2, mt: 0.75 }}>
         <Typography sx={{ fontFamily: 'monospace', fontSize: '0.6rem', color: '#00FF00' }}>
-          ✓ Known: {known}
+          Known: {known}
         </Typography>
         <Typography sx={{ fontFamily: 'monospace', fontSize: '0.6rem', color: '#FFAA00' }}>
           ↻ Reviewing: {reviewing}
         </Typography>
         <Typography sx={{ fontFamily: 'monospace', fontSize: '0.6rem', color: '#555' }}>
-          ○ Remaining: {total - known - reviewing}
+          Remaining: {total - known - reviewing}
         </Typography>
       </Box>
     </Box>
@@ -188,7 +188,7 @@ export default function AnalyticsPage() {
               <StatCard
                 label="Avg Quiz Score"
                 value={`${data.avg_quiz_score}%`}
-                sub={data.avg_quiz_score >= 70 ? '✓ Excellent' : data.avg_quiz_score >= 50 ? '○ Good' : '✗ Needs work'}
+                sub={data.avg_quiz_score >= 70 ? 'Excellent' : data.avg_quiz_score >= 50 ? 'Good' : 'Needs work'}
                 color={data.avg_quiz_score >= 70 ? '#00FF00' : data.avg_quiz_score >= 50 ? '#FFAA00' : '#FF4444'}
               />
               <StatCard

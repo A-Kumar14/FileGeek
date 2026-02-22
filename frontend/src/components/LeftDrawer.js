@@ -1,302 +1,365 @@
-import React, { useState } from 'react';
-import { Drawer } from '@mui/material';
+import React, { useState, useMemo } from 'react';
 import {
-  Search,
-  Upload,
-  Home,
-  LogOut,
-  ChevronDown,
-  ChevronRight,
-  FileText,
-  Folder,
-  Image,
-  File,
-  BarChart2,
-} from 'lucide-react';
+  Box, Drawer, Typography, IconButton, Tooltip,
+  List, ListItemButton, ListItemIcon, ListItemText, Divider, InputBase,
+} from '@mui/material';
+import ExploreIcon from '@mui/icons-material/Explore';
+import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
+import FolderIcon from '@mui/icons-material/Folder';
+import HistoryIcon from '@mui/icons-material/History';
+import AddIcon from '@mui/icons-material/Add';
+import SearchIcon from '@mui/icons-material/Search';
+import SettingsIcon from '@mui/icons-material/Settings';
+import LogoutIcon from '@mui/icons-material/Logout';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
+import ViewSidebarOutlinedIcon from '@mui/icons-material/ViewSidebarOutlined';
 
 import { useAuth } from '../contexts/AuthContext';
 import { useFile } from '../contexts/FileContext';
+import { useChatContext } from '../contexts/ChatContext';
 import { useNavigate } from 'react-router-dom';
 
-const SECTIONS = [
-  { key: 'all', label: 'ALL FILES', icon: Folder, types: [] },
-  { key: 'pdf', label: 'PDFs', icon: FileText, types: ['pdf'] },
-  { key: 'image', label: 'IMAGES', icon: Image, types: ['image'] },
-  { key: 'document', label: 'DOCS', icon: File, types: ['docx', 'txt'] },
+const NAV_ITEMS = [
+  { key: 'explore', label: 'Explore', icon: ExploreIcon },
+  { key: 'library', label: 'Library', icon: LibraryBooksIcon },
+  { key: 'files', label: 'Files', icon: FolderIcon },
+  { key: 'history', label: 'History', icon: HistoryIcon },
 ];
 
-// Empty State ASCII Art Component
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center py-12 px-4 text-mono-dim">
-      <pre className="text-[10px] leading-tight opacity-30 mb-4">
-{`   ___________
-  |  _______  |
-  | |       | |
-  | |       | |
-  | |_______| |
-  |___________|
-   /         \\
-  /___________\\`}
-      </pre>
-      <p className="text-xs font-mono text-center">
-        [ NO FILES UPLOADED ]
-      </p>
-      <p className="text-[10px] font-mono text-center mt-2 opacity-50">
-        Upload a file to begin
-      </p>
-    </div>
-  );
+function groupByDate(sessions) {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfYesterday = new Date(startOfToday.getTime() - 86400000);
+  const startOfWeek = new Date(startOfToday.getTime() - 6 * 86400000);
+
+  const groups = { Today: [], Yesterday: [], 'Past 7 days': [], Older: [] };
+  (sessions || []).forEach((s) => {
+    const d = new Date(s.updated_at || s.created_at || 0);
+    const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    if (day >= startOfToday) groups['Today'].push(s);
+    else if (day >= startOfYesterday) groups['Yesterday'].push(s);
+    else if (day >= startOfWeek) groups['Past 7 days'].push(s);
+    else groups['Older'].push(s);
+  });
+  return groups;
 }
 
-function DrawerContent({ onClose }) {
-  const { logout } = useAuth();
-  const { files, activeFileIndex, setActiveFileIndex, handleFileSelect } = useFile();
+const GROUP_ORDER = ['Today', 'Yesterday', 'Past 7 days', 'Older'];
+
+function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
+  const { logout, user } = useAuth();
+  const { removeFile } = useFile();
+  const { clearMessages, chatSessions, activeSessionId, loadSession } = useChatContext();
   const navigate = useNavigate();
-  const [openSections, setOpenSections] = useState({ all: true });
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchFocused, setSearchFocused] = useState(false);
+  const [search, setSearch] = useState('');
 
-  const toggleSection = (key) => {
-    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
+  const initials = user?.name
+    ? user.name.split(' ').map((p) => p[0]).join('').toUpperCase().slice(0, 2)
+    : user?.email?.[0]?.toUpperCase() || '?';
 
-  const getFilteredFiles = (types) => {
-    return files.filter((f) => {
-      const matchesSearch = (f.name || f.fileName || '').toLowerCase().includes(searchQuery.toLowerCase());
-      if (!matchesSearch) return false;
-      if (types.length === 0) return true;
-      const ext = (f.name || f.fileName || '').split('.').pop().toLowerCase();
-      if (types.includes('image') && ['png', 'jpg', 'jpeg', 'gif'].includes(ext)) return true;
-      if (types.includes('pdf') && ext === 'pdf') return true;
-      if (types.includes('docx') && ext === 'docx') return true;
-      if (types.includes('txt') && ext === 'txt') return true;
-      return false;
-    });
-  };
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      navigate('/login');
-    } catch (error) {
-      console.error('Failed to log out', error);
-    }
-  };
-
-  const handleHome = () => {
-    navigate('/');
+  const handleNewChat = () => {
+    clearMessages();
+    removeFile();
     if (onClose) onClose();
   };
 
-  const handleCommandPalette = () => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }));
+  const handleLogout = async () => {
+    try { await logout(); } catch { }
+    navigate('/login');
+  };
+
+  const handleSessionClick = (sessionId) => {
+    if (loadSession) loadSession(sessionId);
+    if (onClose) onClose();
+  };
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = q
+      ? (chatSessions || []).filter((s) => (s.title || '').toLowerCase().includes(q))
+      : chatSessions || [];
+    return list.slice(0, 60);
+  }, [chatSessions, search]);
+
+  const grouped = useMemo(() => groupByDate(filtered), [filtered]);
+
+  const NavItem = ({ item }) => {
+    const Icon = item.icon;
+    const btn = (
+      <ListItemButton sx={{
+        borderRadius: '10px', mx: 0.75, mb: 0.25, minHeight: 38,
+        px: collapsed ? 1.25 : 1.5,
+        justifyContent: collapsed ? 'center' : 'flex-start',
+        '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
+      }}>
+        <ListItemIcon sx={{ minWidth: collapsed ? 'unset' : 32, color: 'var(--fg-secondary)' }}>
+          <Icon sx={{ fontSize: 18 }} />
+        </ListItemIcon>
+        {!collapsed && (
+          <ListItemText
+            primary={item.label}
+            primaryTypographyProps={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--fg-primary)' }}
+          />
+        )}
+      </ListItemButton>
+    );
+    return collapsed ? <Tooltip title={item.label} placement="right">{btn}</Tooltip> : btn;
   };
 
   return (
-    <div className="h-full flex flex-col bg-mono-black text-mono-light font-mono relative z-10">
-      {/* Header - Brand Only */}
-      <div className="px-4 py-4 border-b border-mono-gray">
-        <h1 className="text-lg font-bold tracking-wider text-mono-light">
-          FileGeek
-        </h1>
-        <p className="text-[10px] text-mono-dim mt-1 uppercase tracking-wide">
-          Document Intelligence
-        </p>
-      </div>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: 'var(--bg-secondary)', overflow: 'hidden' }}>
 
-      {/* Search Bar - Separated and Prominent */}
-      <div className="px-4 py-3 border-b border-mono-gray">
-        <button
-          onClick={handleCommandPalette}
-          className={`
-            w-full flex items-center gap-2 px-3 py-2
-            border border-mono-gray bg-mono-black
-            transition-all duration-200
-            ${searchFocused ? 'border-mono-accent shadow-[0_0_8px_rgba(0,255,0,0.2)]' : 'hover:border-mono-dim'}
-          `}
-          onFocus={() => setSearchFocused(true)}
-          onBlur={() => setSearchFocused(false)}
-        >
-          <Search className="w-4 h-4 text-mono-dim flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="SEARCH FILES..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="
-              flex-1 bg-transparent border-none outline-none
-              text-mono-light text-xs font-mono
-              placeholder:text-mono-dim
-            "
-            style={{ caretColor: '#00FF00' }}
-          />
-          <span className="text-[10px] text-mono-dim">⌘K</span>
-        </button>
-      </div>
-
-      {/* Primary Action - Upload Button */}
-      <div className="px-4 py-3 border-b border-mono-gray">
-        <label htmlFor="sidebar-upload-input">
-          <input
-            id="sidebar-upload-input"
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => handleFileSelect(e.target.files[0])}
-          />
-          <div
-            className="
-              w-full flex items-center justify-center gap-2
-              px-4 py-3 cursor-pointer
-              bg-mono-accent text-mono-black
-              border border-mono-accent
-              font-bold text-xs tracking-wide uppercase
-              transition-all duration-200
-              hover:bg-transparent hover:text-mono-accent
-              active:scale-[0.98]
-            "
-          >
-            <Upload className="w-4 h-4" />
-            <span>Upload New File</span>
-          </div>
-        </label>
-      </div>
-
-      {/* File List Area - Scrollable */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
-        {files.length === 0 && !searchQuery ? (
-          <EmptyState />
-        ) : (
-          <div className="py-2">
-            {SECTIONS.map((section) => {
-              const sectionFiles = getFilteredFiles(section.types);
-              if (section.key !== 'all' && sectionFiles.length === 0) return null;
-
-              const isOpen = openSections[section.key];
-              const SectionIcon = section.icon;
-
-              return (
-                <div key={section.key} className="mb-1">
-                  {/* Section Header */}
-                  <button
-                    onClick={() => toggleSection(section.key)}
-                    className="
-                      w-full flex items-center gap-2 px-4 py-2
-                      text-xs font-bold uppercase tracking-wide
-                      text-mono-dim hover:text-mono-light
-                      border-l-2 border-transparent
-                      hover:bg-mono-gray hover:border-l-2 hover:border-mono-dim
-                      transition-all duration-150
-                    "
-                  >
-                    <SectionIcon className="w-4 h-4 flex-shrink-0" />
-                    <span className="flex-1 text-left">{section.label}</span>
-                    {isOpen ? (
-                      <ChevronDown className="w-3 h-3" />
-                    ) : (
-                      <ChevronRight className="w-3 h-3" />
-                    )}
-                  </button>
-
-                  {/* Section Files */}
-                  {isOpen && (
-                    <div className="py-1">
-                      {sectionFiles.length === 0 ? (
-                        <div className="px-4 py-2 pl-10 text-[10px] text-mono-dim italic">
-                          [NO FILES]
-                        </div>
-                      ) : (
-                        sectionFiles.map((f, idx) => {
-                          const globalIndex = files.indexOf(f);
-                          const isSelected = globalIndex === activeFileIndex;
-
-                          return (
-                            <button
-                              key={idx}
-                              onClick={() => {
-                                setActiveFileIndex(globalIndex);
-                                if (onClose) onClose();
-                              }}
-                              className={`
-                                w-full px-4 py-2 pl-10 text-left
-                                text-[11px] font-mono truncate
-                                border-l-2 transition-all duration-150
-                                ${
-                                  isSelected
-                                    ? 'bg-[rgba(0,255,0,0.05)] border-l-2 border-mono-accent text-mono-accent shadow-[inset_0_0_8px_rgba(0,255,0,0.1)] backdrop-blur-sm'
-                                    : 'border-transparent text-mono-light hover:bg-mono-gray hover:border-mono-dim hover:text-mono-light'
-                                }
-                              `}
-                            >
-                              {f.fileName || f.name}
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+      {/* ── Header ── */}
+      <Box sx={{
+        display: 'flex', alignItems: 'center',
+        px: collapsed ? 1 : 1.5, py: 1.25,
+        justifyContent: collapsed ? 'center' : 'space-between',
+        flexShrink: 0,
+      }}>
+        {!collapsed && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <Box sx={{
+              width: 26, height: 26, borderRadius: '7px', flexShrink: 0,
+              bgcolor: 'var(--accent)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: 'var(--shadow)',
+            }}>
+              <AddIcon sx={{ fontSize: 15, color: '#FFF' }} />
+            </Box>
+            <Typography sx={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--fg-primary)', letterSpacing: '-0.01em' }}>
+              FileGeek
+            </Typography>
+          </Box>
         )}
-      </div>
+        {onCollapse && (
+          <Tooltip title={collapsed ? 'Expand' : 'Collapse'} placement="right">
+            <IconButton
+              size="small"
+              onClick={onCollapse}
+              sx={{
+                color: 'var(--fg-dim)', borderRadius: '7px',
+                border: '1px solid var(--border)', width: 26, height: 26,
+                '&:hover': { color: 'var(--fg-primary)', bgcolor: 'rgba(0,0,0,0.05)' },
+              }}
+            >
+              <ViewSidebarOutlinedIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </Tooltip>
+        )}
+      </Box>
 
-      {/* Footer - Navigation & Logout */}
-      <div className="border-t border-[#1a1a1a] bg-mono-black">
-        <button
-          onClick={handleHome}
-          className="
-            w-full flex items-center gap-3 px-4 py-3
-            text-xs font-mono uppercase tracking-wide
-            text-mono-dim hover:text-mono-light
-            border-l-2 border-transparent
-            hover:bg-mono-gray hover:border-mono-dim
-            transition-all duration-150
-          "
-        >
-          <Home className="w-4 h-4" />
-          <span>Dashboard</span>
-        </button>
+      {/* ── New Chat — black button like Cortex ── */}
+      <Box sx={{ px: collapsed ? 0.75 : 1.25, pt: 0, pb: 0.75, flexShrink: 0 }}>
+        <Tooltip title={collapsed ? 'New chat' : ''} placement="right">
+          <Box
+            onClick={handleNewChat}
+            sx={{
+              display: 'flex', alignItems: 'center',
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              gap: 0.75,
+              background: '#000',
+              color: '#FFF',
+              borderRadius: '10px',
+              px: collapsed ? 1 : 1.5, py: 0.85,
+              cursor: 'pointer',
+              transition: 'background 0.15s',
+              '&:hover': { background: '#222' },
+            }}
+          >
+            <AddIcon sx={{ fontSize: 16 }} />
+            {!collapsed && <Typography sx={{ fontSize: '0.83rem', fontWeight: 600 }}>New chat</Typography>}
+          </Box>
+        </Tooltip>
+      </Box>
 
-        <button
-          onClick={() => { navigate('/analytics'); if (onClose) onClose(); }}
-          className="
-            w-full flex items-center gap-3 px-4 py-3
-            text-xs font-mono uppercase tracking-wide
-            text-mono-dim hover:text-mono-light
-            border-l-2 border-transparent
-            hover:bg-mono-gray hover:border-mono-dim
-            transition-all duration-150
-          "
-        >
-          <BarChart2 className="w-4 h-4" />
-          <span>Analytics</span>
-        </button>
+      {/* ── Search bar ── */}
+      {!collapsed && (
+        <Box sx={{ px: 1.25, pb: 0.5, flexShrink: 0 }}>
+          <Box sx={{
+            display: 'flex', alignItems: 'center', gap: 0.75,
+            border: '1px solid var(--border)', borderRadius: '10px',
+            px: 1.25, py: 0.55, bgcolor: 'var(--bg-primary)',
+            '&:focus-within': { borderColor: 'var(--border-focus)' },
+            transition: 'border-color 0.15s',
+          }}>
+            <SearchIcon sx={{ fontSize: 14, color: 'var(--fg-dim)', flexShrink: 0 }} />
+            <InputBase
+              placeholder="Search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              sx={{
+                flex: 1, fontSize: '0.82rem', color: 'var(--fg-primary)',
+                '& input::placeholder': { color: 'var(--fg-dim)', opacity: 1 },
+              }}
+            />
+            <Box sx={{
+              fontSize: '0.58rem', fontWeight: 700, color: 'var(--fg-dim)',
+              border: '1px solid var(--border)', borderRadius: '5px',
+              px: 0.5, py: 0.1, flexShrink: 0, lineHeight: 1.4,
+            }}>
+              ⌘
+            </Box>
+          </Box>
+        </Box>
+      )}
 
-        <button
-          onClick={handleLogout}
-          className="
-            w-full flex items-center gap-3 px-4 py-3
-            text-xs font-mono uppercase tracking-wide
-            text-mono-dim hover:text-red-500
-            border-l-2 border-transparent
-            hover:bg-mono-gray hover:border-red-500
-            transition-all duration-150
-          "
-        >
-          <LogOut className="w-4 h-4" />
-          <span>Logout</span>
-        </button>
-      </div>
-    </div>
+      {/* ── Navigation ── */}
+      <List dense disablePadding sx={{ flexShrink: 0, mt: 0.25 }}>
+        {NAV_ITEMS.map((item) => <NavItem key={item.key} item={item} />)}
+      </List>
+
+      <Divider sx={{ mx: 1.5, my: 0.75, borderColor: 'var(--border)' }} />
+
+      {/* ── Date-grouped chat history ── */}
+      <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', minHeight: 0 }}>
+        {GROUP_ORDER.map((label) => {
+          const items = grouped[label];
+          if (!items || items.length === 0) return null;
+          return (
+            <Box key={label}>
+              {!collapsed && (
+                <Typography sx={{
+                  px: 2, pt: 1.25, pb: 0.35,
+                  fontSize: '0.65rem', fontWeight: 600,
+                  color: 'var(--fg-dim)', letterSpacing: '0.01em',
+                }}>
+                  {label}
+                </Typography>
+              )}
+              {items.slice(0, 25).map((session) => {
+                const isActive = session.id === activeSessionId;
+                const title = session.title || 'Untitled chat';
+                const btn = (
+                  <ListItemButton
+                    key={session.id}
+                    onClick={() => handleSessionClick(session.id)}
+                    sx={{
+                      borderRadius: '10px', mx: 0.75, mb: 0.1,
+                      minHeight: 32,
+                      px: collapsed ? 1.25 : 1.5,
+                      justifyContent: collapsed ? 'center' : 'flex-start',
+                      bgcolor: isActive ? 'rgba(0,0,0,0.06)' : 'transparent',
+                      '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
+                      transition: 'background 0.12s',
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: collapsed ? 'unset' : 26, color: 'var(--fg-dim)' }}>
+                      <ChatBubbleOutlineIcon sx={{ fontSize: 13 }} />
+                    </ListItemIcon>
+                    {!collapsed && (
+                      <ListItemText
+                        primary={title}
+                        primaryTypographyProps={{
+                          fontSize: '0.8rem',
+                          fontWeight: isActive ? 500 : 400,
+                          color: isActive ? 'var(--fg-primary)' : 'var(--fg-secondary)',
+                          noWrap: true,
+                        }}
+                      />
+                    )}
+                  </ListItemButton>
+                );
+                return collapsed
+                  ? <Tooltip key={session.id} title={title} placement="right">{btn}</Tooltip>
+                  : btn;
+              })}
+            </Box>
+          );
+        })}
+
+        {filtered.length === 0 && !collapsed && (
+          <Typography sx={{ px: 2, py: 1.5, fontSize: '0.78rem', color: 'var(--fg-dim)' }}>
+            {search ? 'No results' : 'No chats yet'}
+          </Typography>
+        )}
+      </Box>
+
+      <Divider sx={{ mx: 1.5, my: 0.5, borderColor: 'var(--border)' }} />
+
+      {/* ── Footer ── */}
+      <Box sx={{ flexShrink: 0, pb: 0.75 }}>
+        <Tooltip title={collapsed ? 'Settings' : ''} placement="right">
+          <ListItemButton
+            onClick={onOpenSettings}
+            sx={{
+              borderRadius: '10px', mx: 0.75, mb: 0.25, minHeight: 36,
+              px: collapsed ? 1.25 : 1.5,
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: collapsed ? 'unset' : 32, color: 'var(--fg-secondary)' }}>
+              <SettingsIcon sx={{ fontSize: 17 }} />
+            </ListItemIcon>
+            {!collapsed && (
+              <ListItemText
+                primary="Settings"
+                primaryTypographyProps={{ fontSize: '0.83rem', color: 'var(--fg-primary)', fontWeight: 500 }}
+              />
+            )}
+          </ListItemButton>
+        </Tooltip>
+
+        <Divider sx={{ mx: 1.5, my: 0.5, borderColor: 'var(--border)' }} />
+
+        {/* Account row */}
+        <Box sx={{
+          display: 'flex', alignItems: 'center',
+          px: collapsed ? 1 : 1.5, py: 0.75,
+          justifyContent: collapsed ? 'center' : 'space-between',
+          gap: 1,
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+            <Box sx={{
+              width: 30, height: 30, borderRadius: '50%',
+              bgcolor: 'var(--accent)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#FFF' }}>
+                {initials}
+              </Typography>
+            </Box>
+            {!collapsed && (
+              <Box sx={{ minWidth: 0 }}>
+                <Typography noWrap sx={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--fg-primary)', lineHeight: 1.2 }}>
+                  {user?.name || 'Account'}
+                </Typography>
+                {user?.email && (
+                  <Typography noWrap sx={{ fontSize: '0.68rem', color: 'var(--fg-dim)', lineHeight: 1.2 }}>
+                    {user.email}
+                  </Typography>
+                )}
+              </Box>
+            )}
+          </Box>
+          {!collapsed && (
+            <Tooltip title="Sign out">
+              <IconButton
+                size="small"
+                onClick={handleLogout}
+                sx={{ color: 'var(--fg-dim)', flexShrink: 0, '&:hover': { color: 'var(--error)', bgcolor: 'rgba(220,38,38,0.08)' } }}
+              >
+                <LogoutIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
+      </Box>
+    </Box>
   );
 }
 
-export default function LeftDrawer({ open, onClose, embedded }) {
+export default function LeftDrawer({ open, onClose, embedded, collapsed, onCollapse, onOpenSettings }) {
   if (embedded) {
-    return <DrawerContent onClose={onClose} />;
+    return (
+      <SidebarContent
+        onClose={onClose}
+        collapsed={collapsed}
+        onCollapse={onCollapse}
+        onOpenSettings={onOpenSettings}
+      />
+    );
   }
 
   return (
@@ -306,14 +369,14 @@ export default function LeftDrawer({ open, onClose, embedded }) {
       onClose={onClose}
       PaperProps={{
         sx: {
-          width: 280,
-          bgcolor: '#000000',
-          color: '#E5E5E5',
-          borderRight: '1px solid #1a1a1a',
-        }
+          width: 260,
+          bgcolor: 'var(--bg-secondary)',
+          color: 'var(--fg-primary)',
+          borderRight: '1px solid var(--border)',
+        },
       }}
     >
-      <DrawerContent onClose={onClose} />
+      <SidebarContent onClose={onClose} onOpenSettings={onOpenSettings} />
     </Drawer>
   );
 }

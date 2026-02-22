@@ -136,7 +136,7 @@ function QuizCard({ data, onOpenDialog, messageId, sessionId, topic }) {
             SCORE: {score}/{questions.length} ({percentage}%)
           </Typography>
           <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#888' }}>
-            {percentage >= 70 ? '✓ EXCELLENT' : percentage >= 50 ? '○ GOOD' : '✗ NEEDS REVIEW'}
+            {percentage >= 70 ? 'EXCELLENT' : percentage >= 50 ? 'GOOD' : 'NEEDS REVIEW'}
           </Typography>
         </Box>
       )}
@@ -159,7 +159,7 @@ function QuizCard({ data, onOpenDialog, messageId, sessionId, topic }) {
                 const isCorrectOption = optIdx === q.correct_index;
 
                 // Determine color and style based on state
-                let bgcolor = '#0D0D0D';
+                let bgcolor = 'var(--bg-secondary)';
                 let borderColor = '#333';
                 let textColor = '#AAA';
                 let fontWeight = 400;
@@ -463,9 +463,9 @@ function FlashcardComponent({ data, messageId, sessionId }) {
 
       {/* Status legend */}
       <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', fontSize: '0.7rem', fontFamily: 'monospace' }}>
-        <Box sx={{ color: '#888' }}>⬜ Remaining: {remainingCount}</Box>
-        <Box sx={{ color: '#FFAA00' }}>🔶 Reviewing: {reviewingCount}</Box>
-        <Box sx={{ color: '#00FF00' }}>✓ Known: {knownCount}</Box>
+        <Box sx={{ color: '#888' }}>Remaining: {remainingCount}</Box>
+        <Box sx={{ color: '#FFAA00' }}>Reviewing: {reviewingCount}</Box>
+        <Box sx={{ color: '#00FF00' }}>Known: {knownCount}</Box>
       </Box>
 
       {/* Flashcard */}
@@ -497,7 +497,7 @@ function FlashcardComponent({ data, messageId, sessionId }) {
               height: '100%',
               backfaceVisibility: 'hidden',
               border: `2px solid ${statusColor}`,
-              bgcolor: '#0D0D0D',
+              bgcolor: 'var(--bg-secondary)',
               p: 3,
               display: 'flex',
               flexDirection: 'column',
@@ -583,7 +583,7 @@ function FlashcardComponent({ data, messageId, sessionId }) {
               backfaceVisibility: 'hidden',
               transform: 'rotateY(180deg)',
               border: `2px solid ${statusColor}`,
-              bgcolor: '#0D0D0D',
+              bgcolor: 'var(--bg-secondary)',
               p: 3,
               display: 'flex',
               flexDirection: 'column',
@@ -765,7 +765,7 @@ function FlashcardComponent({ data, messageId, sessionId }) {
           }}
         >
           <Typography sx={{ fontFamily: 'monospace', fontSize: '0.9rem', fontWeight: 700, color: '#00FF00' }}>
-            ✓ ALL CARDS MASTERED!
+            ALL CARDS MASTERED!
           </Typography>
           <Typography sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#888', mt: 0.5 }}>
             Great job! You've completed all {cards.length} flashcards.
@@ -880,7 +880,7 @@ export default function ArtifactPanel() {
 
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: '#000000' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'var(--bg-primary)' }}>
       <Box
         sx={{
           display: 'flex',

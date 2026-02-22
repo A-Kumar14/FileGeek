@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import { FixedSizeList } from 'react-window';
 import { Box, Tooltip, Typography, TextField } from '@mui/material';
 import './PdfViewer.css';
 import HighlightLayer from './HighlightLayer';
@@ -11,107 +12,84 @@ import { useAnnotations } from '../contexts/AnnotationContext';
 import { useFile } from '../contexts/FileContext';
 import { getSelectionRectsRelativeTo } from '../utils/selectionUtils';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker-5.4.296.min.mjs`;
 
-/* ── Lazy thumbnail with IntersectionObserver ── */
-const LazyThumbnail = React.memo(
-  function LazyThumbnail({ pageNumber, isActive, onClick }) {
-    const ref = useRef(null);
-    const [hasRendered, setHasRendered] = useState(false);
+// Estimated A4 page height at scale=1.0, plus inter-page gap
+const BASE_PAGE_HEIGHT = 1060;
+const PAGE_GAP = 16;
+const THUMB_ITEM_HEIGHT = 200; // thumbnail card height incl. padding
+const THUMB_WIDTH = 166;       // thumbnail sidebar width
 
-    useEffect(() => {
-      const el = ref.current;
-      if (!el) return;
-      const observer = new IntersectionObserver(
-        ([entry]) => {
-          if (entry.isIntersecting) {
-            setHasRendered(true);
-            observer.disconnect();
-          }
-        },
-        { rootMargin: '100px 0px' }
-      );
-      observer.observe(el);
-      return () => observer.disconnect();
-    }, []);
-
-    // Auto-scroll active thumbnail into view
-    useEffect(() => {
-      if (isActive && ref.current) {
-        ref.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
-    }, [isActive]);
-
-    return (
-      <button
-        ref={ref}
-        type="button"
-        className={`pdf-thumb ${isActive ? 'active' : ''}`}
-        onClick={onClick}
-        aria-label={`Go to page ${pageNumber}`}
-      >
-        {hasRendered ? (
-          <Page
-            pageNumber={pageNumber}
-            width={150}
-            renderTextLayer={false}
-            renderAnnotationLayer={false}
-          />
-        ) : (
-          <span className="pdf-thumb-placeholder">{pageNumber}</span>
-        )}
-        <span className="pdf-thumb-num">{pageNumber}</span>
-      </button>
-    );
-  },
-  (prevProps, nextProps) => {
-    // Only re-render if pageNumber or isActive changes
-    return prevProps.pageNumber === nextProps.pageNumber && prevProps.isActive === nextProps.isActive;
-  }
-);
-
-/* ── Lazy wrapper for full PDF pages ── */
-function LazyPageWrapper({ pageNumber, scale, rotate }) {
+/* ── Thumbnail item (rendered by FixedSizeList) ── */
+const ThumbnailItem = React.memo(function ThumbnailItem({ index, style, data }) {
+  const { pageNum, onClick } = data;
+  const n = index + 1;
+  const isActive = pageNum === n;
   const ref = useRef(null);
   const [hasRendered, setHasRendered] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setHasRendered(true);
-        }
-      },
-      // Load pages 500px before they enter viewport
-      { rootMargin: '500px 0px' }
+    if (!el || hasRendered) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setHasRendered(true); obs.disconnect(); } },
+      { rootMargin: '200px 0px' }
     );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasRendered]);
 
   return (
-    <div ref={ref} style={{ minHeight: 1000 * scale, width: 800 * scale }}>
+    <button
+      ref={ref}
+      type="button"
+      className={`pdf-thumb ${isActive ? 'active' : ''}`}
+      style={style}
+      onClick={() => onClick(n)}
+      aria-label={`Go to page ${n}`}
+    >
       {hasRendered ? (
+        <Page pageNumber={n} width={150} renderTextLayer={false} renderAnnotationLayer={false} />
+      ) : (
+        <span className="pdf-thumb-placeholder">{n}</span>
+      )}
+      <span className="pdf-thumb-num">{n}</span>
+    </button>
+  );
+});
+
+/* ── Main page item (rendered by FixedSizeList) ── */
+const PageItem = React.memo(function PageItem({ index, style, data }) {
+  const { scale, rotation, darkFilter, pageRefs, computedSourceRects } = data;
+  const n = index + 1;
+  return (
+    <div
+      style={{ ...style, paddingBottom: PAGE_GAP, boxSizing: 'border-box' }}
+      data-page={n}
+      ref={(el) => { pageRefs.current[n - 1] = el; }}
+    >
+      <div
+        style={{
+          width: 'fit-content',
+          margin: '0 auto',
+          ...(darkFilter ? { filter: 'invert(0.88) hue-rotate(180deg)' } : {}),
+        }}
+      >
         <Page
-          pageNumber={pageNumber}
+          pageNumber={n}
           scale={scale}
-          rotate={rotate}
+          rotate={rotation}
           renderTextLayer={true}
           renderAnnotationLayer={true}
           devicePixelRatio={window.devicePixelRatio || 1}
         />
-      ) : (
-        <div style={{ height: 1000 * scale, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ fontFamily: 'monospace', color: '#888' }}>[ LOADING PAGE {pageNumber} ]</span>
-        </div>
-      )}
+        <HighlightLayer pageNum={n} scale={scale} sourceHighlights={computedSourceRects} />
+      </div>
     </div>
   );
-}
+});
 
-/* ── Text-based toolbar button ── */
+/* ── Text toolbar button ── */
 function ToolBtn({ label, onClick, disabled, active, tooltip }) {
   const btn = (
     <Box
@@ -119,11 +97,8 @@ function ToolBtn({ label, onClick, disabled, active, tooltip }) {
       sx={{
         cursor: disabled ? 'default' : 'pointer',
         color: disabled ? '#555' : active ? '#00FF00' : '#888',
-        fontFamily: 'monospace',
-        fontSize: '0.75rem',
-        fontWeight: 700,
-        px: 0.5,
-        userSelect: 'none',
+        fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 700,
+        px: 0.5, userSelect: 'none',
         '&:hover': disabled ? {} : { color: '#E5E5E5' },
       }}
     >
@@ -133,7 +108,6 @@ function ToolBtn({ label, onClick, disabled, active, tooltip }) {
   return tooltip ? <Tooltip title={tooltip}>{btn}</Tooltip> : btn;
 }
 
-/* ── Vertical separator ── */
 function Sep() {
   return <Box sx={{ width: '1px', height: 20, bgcolor: '#333333', mx: 0.25 }} />;
 }
@@ -145,36 +119,56 @@ function PdfViewer({ file, targetPage, onPageChange }) {
   const [rotation, setRotation] = useState(0);
   const [darkFilter, setDarkFilter] = useState(false);
   const [pageInput, setPageInput] = useState('');
-  const containerRef = useRef(null);
-  const scrollContainerRef = useRef(null);
+
+  // Heights measured by ResizeObserver — required by FixedSizeList
+  const [thumbHeight, setThumbHeight] = useState(600);
+  const [mainHeight, setMainHeight] = useState(600);
+
+  const thumbContainerRef = useRef(null);
+  const mainContainerRef = useRef(null);
+  const thumbListRef = useRef(null);
+  const pageListRef = useRef(null);
   const pageRefs = useRef([]);
   const isScrollingTo = useRef(false);
 
-  // Backward-compat: single active page wrapper for selection/annotation tools
+  // Backward-compat ref for SelectionToolbar
   const pageWrapperRef = { current: pageRefs.current[pageNum - 1] || null };
 
   const { addHighlight, addComment, setNotePanelOpen, highlights, notes, comments, undo, redo } = useAnnotations();
   const { activeSourceHighlight } = useFile();
   const [computedSourceRects, setComputedSourceRects] = useState([]);
 
+  // Measure thumbnail sidebar height
+  useEffect(() => {
+    const el = thumbContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => setThumbHeight(entry.contentRect.height));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Measure main scroll area height
+  useEffect(() => {
+    const el = mainContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => setMainHeight(entry.contentRect.height));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Cmd+Z / Cmd+Shift+Z — undo/redo annotations
   useEffect(() => {
-    const handleKey = (e) => {
-      // Ignore when typing in an input or textarea
+    const handler = (e) => {
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       const isMac = navigator.platform.toUpperCase().includes('MAC');
       const ctrl = isMac ? e.metaKey : e.ctrlKey;
       if (!ctrl || e.key !== 'z') return;
       e.preventDefault();
-      if (e.shiftKey) {
-        redo();
-      } else {
-        undo();
-      }
+      e.shiftKey ? redo() : undo();
     };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, [undo, redo]);
 
   const handleExportAnnotations = useCallback(() => {
@@ -188,10 +182,7 @@ function PdfViewer({ file, targetPage, onPageChange }) {
     URL.revokeObjectURL(url);
   }, [highlights, notes, comments, file]);
 
-  const fileData = useMemo(() => {
-    if (!file) return null;
-    return file;
-  }, [file]);
+  const fileData = useMemo(() => file || null, [file]);
 
   const onDocumentLoadSuccess = useCallback(({ numPages: total }) => {
     setNumPages(total);
@@ -200,60 +191,40 @@ function PdfViewer({ file, targetPage, onPageChange }) {
     pageRefs.current = [];
   }, []);
 
-  // Scroll to a page programmatically (from toolbar or thumbnail)
-  const scrollToPage = useCallback((n) => {
-    const el = pageRefs.current[n - 1];
-    const container = scrollContainerRef.current;
-    if (!el || !container) return;
-    isScrollingTo.current = true;
-    const containerTop = container.getBoundingClientRect().top;
-    const elTop = el.getBoundingClientRect().top;
-    container.scrollBy({ top: elTop - containerTop - 8, behavior: 'smooth' });
-    setTimeout(() => { isScrollingTo.current = false; }, 800);
-  }, []);
+  // Item height = estimated page height at current scale + inter-page gap
+  const pageItemSize = useMemo(() => Math.ceil(BASE_PAGE_HEIGHT * scale) + PAGE_GAP, [scale]);
 
-  // Update pageNum from IntersectionObserver as user scrolls
-  useEffect(() => {
-    if (numPages === 0 || !scrollContainerRef.current) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (isScrollingTo.current) return;
-        let best = null;
-        let bestRatio = 0;
-        for (const entry of entries) {
-          if (entry.isIntersecting && entry.intersectionRatio > bestRatio) {
-            bestRatio = entry.intersectionRatio;
-            best = entry.target;
-          }
-        }
-        if (best) {
-          const n = parseInt(best.dataset.page, 10);
-          if (!isNaN(n)) setPageNum(n);
-        }
-      },
-      { root: scrollContainerRef.current, threshold: [0.3, 0.5, 0.8] }
-    );
-    pageRefs.current.forEach((el) => { if (el) observer.observe(el); });
-    return () => observer.disconnect();
+  // Programmatic scroll via react-window
+  const scrollToPage = useCallback((n) => {
+    const clamped = Math.max(1, Math.min(n, numPages));
+    isScrollingTo.current = true;
+    pageListRef.current?.scrollToItem(clamped - 1, 'start');
+    thumbListRef.current?.scrollToItem(clamped - 1, 'smart');
+    setTimeout(() => { isScrollingTo.current = false; }, 600);
   }, [numPages]);
 
-  useEffect(() => {
-    if (targetPage && targetPage >= 1 && targetPage <= numPages) {
-      setPageNum(targetPage);
-      scrollToPage(targetPage);
-    }
-  }, [targetPage, numPages, scrollToPage]);
+  // Track visible page as user scrolls
+  const handleItemsRendered = useCallback(({ visibleStartIndex }) => {
+    if (isScrollingTo.current) return;
+    const n = visibleStartIndex + 1;
+    setPageNum(n);
+    if (onPageChange) onPageChange(n, numPages);
+  }, [numPages, onPageChange]);
 
-  useEffect(() => {
-    if (onPageChange) onPageChange(pageNum, numPages);
-  }, [pageNum, numPages, onPageChange]);
-
-  // Navigate via toolbar buttons: set pageNum and scroll to it
   const goToPage = useCallback((n) => {
     const clamped = Math.max(1, Math.min(n, numPages));
     setPageNum(clamped);
     scrollToPage(clamped);
   }, [numPages, scrollToPage]);
+
+  // External page navigation (e.g. source highlight click)
+  useEffect(() => {
+    if (targetPage && targetPage >= 1 && targetPage <= numPages) goToPage(targetPage);
+  }, [targetPage, numPages, goToPage]);
+
+  useEffect(() => {
+    if (onPageChange) onPageChange(pageNum, numPages);
+  }, [pageNum, numPages, onPageChange]);
 
   const findTextRectsForExcerpt = useCallback((excerptText, targetPageNum) => {
     const wrapper = pageRefs.current[(targetPageNum || pageNum) - 1];
@@ -276,38 +247,22 @@ function PdfViewer({ file, targetPage, onPageChange }) {
 
   // Compute source highlight rects when activeSourceHighlight changes
   useEffect(() => {
-    if (!activeSourceHighlight) {
-      setComputedSourceRects([]);
-      return;
-    }
+    if (!activeSourceHighlight) { setComputedSourceRects([]); return; }
     const targetP = activeSourceHighlight.page || pageNum;
-    setPageNum(targetP);
-    scrollToPage(targetP);
+    goToPage(targetP);
     const timer = setTimeout(() => {
       const rects = findTextRectsForExcerpt(activeSourceHighlight.excerpt, targetP);
       setComputedSourceRects(rects.length > 0 ? [{ page: targetP, rects }] : []);
-      if (rects[0]) {
-        const wrapper = pageRefs.current[targetP - 1];
-        wrapper?.parentElement?.scrollTo({
-          top: wrapper.offsetTop + rects[0].y * scale - 80,
-          behavior: 'smooth',
-        });
-      }
-    }, 400);
+    }, 450);
     return () => clearTimeout(timer);
-  }, [activeSourceHighlight, scrollToPage, findTextRectsForExcerpt, pageNum, scale]);
+  }, [activeSourceHighlight, goToPage, findTextRectsForExcerpt, pageNum]);
 
   const handleHighlight = useCallback(() => {
     const wrapper = pageRefs.current[pageNum - 1];
     if (!wrapper) return;
     const result = getSelectionRectsRelativeTo(wrapper, scale);
     if (!result) return;
-    addHighlight({
-      text: result.text,
-      color: 'rgba(255, 235, 59, 0.4)',
-      rects: result.rects,
-      pageNum,
-    });
+    addHighlight({ text: result.text, color: 'rgba(255, 235, 59, 0.4)', rects: result.rects, pageNum });
   }, [scale, pageNum, addHighlight]);
 
   const handleComment = useCallback((commentText) => {
@@ -315,22 +270,22 @@ function PdfViewer({ file, targetPage, onPageChange }) {
     if (!wrapper) return;
     const result = getSelectionRectsRelativeTo(wrapper, scale);
     if (!result) return;
-    addComment({
-      text: result.text,
-      comment: commentText,
-      rects: result.rects,
-      pageNum,
-    });
+    addComment({ text: result.text, comment: commentText, rects: result.rects, pageNum });
   }, [scale, pageNum, addComment]);
 
   const hasAnnotations = highlights.length > 0 || notes.length > 0 || comments.length > 0;
 
-  if (!fileData) {
-    return <div className="placeholder">[ NO_DOCUMENT ]</div>;
-  }
+  // Stable item data objects passed to react-window renderers (avoid re-render churn)
+  const thumbItemData = useMemo(() => ({ pageNum, onClick: goToPage }), [pageNum, goToPage]);
+  const pageItemData = useMemo(
+    () => ({ scale, rotation, darkFilter, pageRefs, computedSourceRects }),
+    [scale, rotation, darkFilter, computedSourceRects]
+  );
+
+  if (!fileData) return <div className="placeholder">[ NO_DOCUMENT ]</div>;
 
   return (
-    <div className="pdf-viewer-wrap" ref={containerRef}>
+    <div className="pdf-viewer-wrap">
       <Document
         className="pdf-document"
         file={fileData}
@@ -353,74 +308,40 @@ function PdfViewer({ file, targetPage, onPageChange }) {
               <Box className="pdf-toolbar">
                 {/* Page navigation */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <ToolBtn
-                    label="[<]"
-                    onClick={() => goToPage(pageNum - 1)}
-                    disabled={pageNum <= 1}
-                    tooltip="Previous page"
-                  />
+                  <ToolBtn label="[<]" onClick={() => goToPage(pageNum - 1)} disabled={pageNum <= 1} tooltip="Previous page" />
                   <TextField
                     size="small"
                     value={pageInput || pageNum}
                     onChange={(e) => setPageInput(e.target.value)}
-                    onBlur={() => {
-                      const val = parseInt(pageInput, 10);
-                      if (val >= 1 && val <= numPages) goToPage(val);
-                      setPageInput('');
-                    }}
+                    onBlur={() => { const v = parseInt(pageInput, 10); if (v >= 1 && v <= numPages) goToPage(v); setPageInput(''); }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
-                        const val = parseInt(pageInput, 10);
-                        if (val >= 1 && val <= numPages) goToPage(val);
+                        const v = parseInt(pageInput, 10);
+                        if (v >= 1 && v <= numPages) goToPage(v);
                         setPageInput('');
                         e.target.blur();
                       }
                     }}
                     onFocus={() => setPageInput(String(pageNum))}
-                    slotProps={{
-                      input: {
-                        sx: {
-                          textAlign: 'center',
-                          fontSize: '0.8rem',
-                          fontFamily: 'monospace',
-                          py: 0.25,
-                          px: 0.5,
-                        },
-                      },
-                    }}
+                    slotProps={{ input: { sx: { textAlign: 'center', fontSize: '0.8rem', fontFamily: 'monospace', py: 0.25, px: 0.5 } } }}
                     sx={{ width: 44 }}
                     aria-label="Go to page"
                   />
                   <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#888', whiteSpace: 'nowrap' }}>
                     / {numPages}
                   </Typography>
-                  <ToolBtn
-                    label="[>]"
-                    onClick={() => goToPage(pageNum + 1)}
-                    disabled={pageNum >= numPages}
-                    tooltip="Next page"
-                  />
+                  <ToolBtn label="[>]" onClick={() => goToPage(pageNum + 1)} disabled={pageNum >= numPages} tooltip="Next page" />
                 </Box>
 
                 <Sep />
 
                 {/* Zoom */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <ToolBtn
-                    label="[-]"
-                    onClick={() => setScale((s) => Math.max(s - 0.2, 0.5))}
-                    disabled={scale <= 0.5}
-                    tooltip="Zoom out"
-                  />
+                  <ToolBtn label="[-]" onClick={() => setScale((s) => Math.max(s - 0.2, 0.5))} disabled={scale <= 0.5} tooltip="Zoom out" />
                   <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#E5E5E5', minWidth: 36, textAlign: 'center' }}>
                     {Math.round(scale * 100)}%
                   </Typography>
-                  <ToolBtn
-                    label="[+]"
-                    onClick={() => setScale((s) => Math.min(s + 0.2, 3))}
-                    disabled={scale >= 3}
-                    tooltip="Zoom in"
-                  />
+                  <ToolBtn label="[+]" onClick={() => setScale((s) => Math.min(s + 0.2, 3))} disabled={scale >= 3} tooltip="Zoom in" />
                 </Box>
 
                 <Sep />
@@ -436,59 +357,50 @@ function PdfViewer({ file, targetPage, onPageChange }) {
                 {/* Tools */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
                   <ToolBtn label="[NOTES]" onClick={() => setNotePanelOpen(true)} tooltip="Open notes" />
-                  <ToolBtn
-                    label="[INV]"
-                    onClick={() => setDarkFilter((d) => !d)}
-                    active={darkFilter}
-                    tooltip={darkFilter ? 'Normal view' : 'Dark reading mode'}
-                  />
-                  {hasAnnotations && (
-                    <ToolBtn label="[EXP]" onClick={handleExportAnnotations} tooltip="Export annotations" />
-                  )}
+                  <ToolBtn label="[INV]" onClick={() => setDarkFilter((d) => !d)} active={darkFilter} tooltip={darkFilter ? 'Normal view' : 'Dark reading mode'} />
+                  {hasAnnotations && <ToolBtn label="[EXP]" onClick={handleExportAnnotations} tooltip="Export annotations" />}
                 </Box>
               </Box>
             </header>
 
             <div className="pdf-viewer-body">
-              {/* ── Thumbnail sidebar ── */}
-              <aside className="pdf-thumbnails">
-                {Array.from({ length: numPages }, (_, i) => i + 1).map((n) => (
-                  <LazyThumbnail
-                    key={n}
-                    pageNumber={n}
-                    isActive={pageNum === n}
-                    onClick={() => goToPage(n)}
-                  />
-                ))}
+              {/* ── Virtualized thumbnail sidebar ── */}
+              <aside
+                className="pdf-thumbnails"
+                ref={thumbContainerRef}
+                style={{ width: THUMB_WIDTH, overflow: 'hidden', flexShrink: 0 }}
+              >
+                <FixedSizeList
+                  ref={thumbListRef}
+                  height={thumbHeight}
+                  width={THUMB_WIDTH}
+                  itemCount={numPages}
+                  itemSize={THUMB_ITEM_HEIGHT}
+                  itemData={thumbItemData}
+                  overscanCount={3}
+                >
+                  {ThumbnailItem}
+                </FixedSizeList>
               </aside>
 
-              {/* ── Main page view (lazy rendering) ── */}
-              <div className="pdf-container" ref={scrollContainerRef}>
-                {Array.from({ length: numPages }, (_, i) => i + 1).map((n) => (
-                  <div
-                    key={n}
-                    className="pdf-page-wrapper"
-                    data-page={n}
-                    ref={(el) => { pageRefs.current[n - 1] = el; }}
-                    style={{
-                      ...(darkFilter ? { filter: 'invert(0.88) hue-rotate(180deg)' } : {}),
-                      width: 'fit-content',
-                      margin: '0 auto',
-                      minHeight: 1000 * scale, // Reserve space
-                    }}
-                  >
-                    <LazyPageWrapper
-                      pageNumber={n}
-                      scale={scale}
-                      rotate={rotation}
-                    />
-                    <HighlightLayer
-                      pageNum={n}
-                      scale={scale}
-                      sourceHighlights={computedSourceRects}
-                    />
-                  </div>
-                ))}
+              {/* ── Virtualized main page view ── */}
+              <div
+                className="pdf-container"
+                ref={mainContainerRef}
+                style={{ flex: 1, overflow: 'hidden' }}
+              >
+                <FixedSizeList
+                  ref={pageListRef}
+                  height={mainHeight}
+                  width="100%"
+                  itemCount={numPages}
+                  itemSize={pageItemSize}
+                  itemData={pageItemData}
+                  overscanCount={2}
+                  onItemsRendered={handleItemsRendered}
+                >
+                  {PageItem}
+                </FixedSizeList>
               </div>
             </div>
 

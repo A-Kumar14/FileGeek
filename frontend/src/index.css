@@ -4,34 +4,35 @@
 /* OpenDyslexic is served from a CDN that doesn't require OAuth — loaded below */
 @import url('https://fonts.cdnfonts.com/css/opendyslexic');
 
-/* ── CSS Custom Property Defaults (dark theme baseline) ────────────────────── */
+/* ── CSS Custom Property Defaults (Cortex theme baseline) ──────────────────── */
 /* ThemeContext.js overrides these at runtime by setting inline styles on :root */
 :root {
-  --bg-primary:   #0D0D0D;
-  --bg-secondary: #111111;
-  --bg-tertiary:  #1A1A1A;
-  --bg-hover:     #222222;
-  --fg-primary:   #E5E5E5;
-  --fg-secondary: #AAAAAA;
-  --fg-dim:       #666666;
-  --accent:       #00FF00;
-  --accent-dim:   rgba(0,255,0,0.15);
-  --accent-glow:  0 0 12px rgba(0,255,0,0.4);
-  --border:       #333333;
-  --border-focus: #555555;
-  --error:        #FF4444;
-  --warning:      #FFAA00;
-  --success:      #00FF00;
-  --shadow:       0 4px 24px rgba(0,0,0,0.8);
+  --bg-primary:        #FFF9F5;
+  --bg-secondary:      #FFFFFF;
+  --bg-tertiary:       #FFF0E6;
+  --bg-hover:          #FFE4CC;
+  --fg-primary:        #1C0A00;
+  --fg-secondary:      #6B3A2A;
+  --fg-dim:            #A07060;
+  --accent:            #F97316;
+  --accent-secondary:  #FBBF24;
+  --accent-dim:        rgba(249,115,22,0.08);
+  --accent-glow:       0 8px 32px rgba(249,115,22,0.22);
+  --border:            rgba(249,115,22,0.15);
+  --border-focus:      #F97316;
+  --error:             #DC2626;
+  --warning:           #D97706;
+  --success:           #059669;
+  --shadow:            0 4px 24px rgba(249,115,22,0.10);
+  --radius:            12px;
 
   /* Typography */
-  --font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-  --font-mono:   'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  --font-family: 'Inter', system-ui, sans-serif;
+  --font-mono:   'JetBrains Mono', 'Courier New', monospace;
 
   /* Density */
   --spacing-unit: 4px;
-  --radius:       2px;
-  --line-height:  1.4;
+  --line-height: 1.5;
 }
 
 body {
@@ -48,21 +49,44 @@ code {
   font-family: var(--font-mono);
 }
 
-/* Global Reset for MUI components  */
-* {
-  border-radius: 0 !important;
-  box-shadow: none !important;
-}
-
-.MuiPaper-root, .MuiButton-root, .MuiInputBase-root, .MuiCard-root {
-  border-radius: 0 !important;
-  box-shadow: none !important;
+/* Global Reset for MUI components — only strip background gradients */
+.MuiPaper-root,
+.MuiButton-root,
+.MuiCard-root {
   background-image: none !important;
 }
 
 /* Custom Scrollbar */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: var(--bg-primary); }
-::-webkit-scrollbar-thumb { background: var(--border); border: 1px solid var(--bg-primary); }
-::-webkit-scrollbar-thumb:hover { background: var(--fg-primary); }
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
 
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 1px solid var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-primary);
+}
+
+/* ── Keyframe Animations ─────────────────────────────────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 0.15; }
+  50%       { opacity: 1; }
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+@keyframes orbPulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50%       { transform: scale(1.07); opacity: 1; }
+}

@@ -4,7 +4,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #0D0D0D;
+  background: var(--bg-primary);
 }
 
 /* react-pdf Document wrapper — must fill the flex parent */
@@ -19,11 +19,11 @@
 .pdf-viewer-sticky-header {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 8;
   flex-shrink: 0;
   padding: 0.5rem 0.75rem;
-  background: #000000;
-  border-bottom: 1px solid #333333;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
 }
 
 .pdf-toolbar {
@@ -48,64 +48,48 @@
 }
 
 /* ── Thumbnail sidebar ── */
+/* react-window owns scrolling; the container just provides dimensions + decoration */
 .pdf-thumbnails {
   flex-shrink: 0;
-  width: 100px;
-  height: 100%; /* Ensure it takes full parent height */
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  border-right: 1px solid #333333;
-  background: #000000;
-  /* Smooth scrolling */
-  scroll-behavior: smooth;
-  /* Custom scrollbar for better aesthetics */
+  height: 100%;
+  overflow: hidden;        /* react-window handles its own scroll */
+  border-right: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+/* Style the react-window inner scroll container */
+.pdf-thumbnails > div {
   scrollbar-width: thin;
-  scrollbar-color: #333333 #000000;
+  scrollbar-color: var(--border) var(--bg-secondary);
+  scroll-behavior: smooth;
 }
 
-/* Webkit scrollbar styling */
-.pdf-thumbnails::-webkit-scrollbar {
-  width: 6px;
-}
-
-.pdf-thumbnails::-webkit-scrollbar-track {
-  background: #000000;
-}
-
-.pdf-thumbnails::-webkit-scrollbar-thumb {
-  background: #333333;
-  border-radius: 0;
-}
-
-.pdf-thumbnails::-webkit-scrollbar-thumb:hover {
-  background: #555555;
-}
+.pdf-thumbnails > div::-webkit-scrollbar { width: 6px; }
+.pdf-thumbnails > div::-webkit-scrollbar-track { background: var(--bg-secondary); }
+.pdf-thumbnails > div::-webkit-scrollbar-thumb { background: var(--border); border-radius: 0; }
+.pdf-thumbnails > div::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
 
 .pdf-thumb {
   display: block;
   width: 100%;
   padding: 0;
-  border: 1px solid #333333;
+  border: 1px solid var(--border);
   border-left: 2px solid transparent;
   cursor: pointer;
-  background: #0D0D0D;
+  background: var(--bg-primary);
   overflow: hidden;
   position: relative;
   transition: none;
 }
 
 .pdf-thumb:hover {
-  border-color: #888888;
-  border-left-color: #888888;
+  border-color: var(--fg-secondary);
+  border-left-color: var(--fg-secondary);
 }
 
 .pdf-thumb.active {
-  border-color: #00FF00;
-  border-left-color: #00FF00;
+  border-color: var(--accent);
+  border-left-color: var(--accent);
   border-left-width: 2px;
 }
 
@@ -140,34 +124,40 @@
   font-size: 0.6rem;
   text-align: center;
   background: rgba(0, 0, 0, 0.85);
-  color: #888;
+  /* Keep dark overlay over canvas thumbnails so text is readable */
+  color: var(--fg-secondary);
   padding: 1px 0;
   font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
 }
 
 .pdf-thumb.active .pdf-thumb-num {
-  color: #00FF00;
+  color: var(--accent);
 }
 
 /* ── Main viewer ── */
+/* react-window owns scrolling; overflow: hidden is set inline from JSX */
 .pdf-container {
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
-  overflow-x: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 0.75rem;
-  background: #0D0D0D;
+  background: var(--bg-primary);
 }
+
+/* Style the react-window inner scroll container */
+.pdf-container > div {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--bg-primary);
+}
+
+.pdf-container > div::-webkit-scrollbar { width: 8px; }
+.pdf-container > div::-webkit-scrollbar-track { background: var(--bg-primary); }
+.pdf-container > div::-webkit-scrollbar-thumb { background: var(--border); }
+.pdf-container > div::-webkit-scrollbar-thumb:hover { background: var(--fg-secondary); }
 
 .pdf-page-wrapper {
   position: relative;
   display: inline-block;
-  border: 1px solid #333333;
+  border: 1px solid var(--border);
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -190,7 +180,7 @@
   cursor: text;
 }
 
-.textLayer > span {
+.textLayer>span {
   color: transparent;
   position: absolute;
   white-space: pre;

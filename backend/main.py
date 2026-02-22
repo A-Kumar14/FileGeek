@@ -19,6 +19,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -102,6 +103,9 @@ app.include_router(auth_router)
 
 # ── Mount Socket.IO at /socket.io ──────────────────────────────────────────────
 app.mount("/socket.io", socket_app)
+
+# ── Mount static uploads folder for local files ────────────────────────────────
+app.mount("/static/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
 
 # ── Request logging middleware ─────────────────────────────────────────────────
 @app.middleware("http")
@@ -384,7 +388,6 @@ async def delete_session(session_id: str, current_user: CurrentUser, db: DB):
 @limiter.limit("20/minute")
 async def index_session_document(
     session_id: str,
-    data: DocumentCreate,
     request: Request,
     current_user: CurrentUser,
     db: DB,
@@ -398,39 +401,84 @@ async def index_session_document(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    file_url = data.url
-    file_name = data.name
+    content_type = request.headers.get("content-type", "")
+    is_local_upload = "multipart/form-data" in content_type
 
-    allowed_prefixes = ALLOWED_URL_PREFIXES
-    if Config.S3_ENABLED and Config.AWS_S3_BUCKET:
-        allowed_prefixes = allowed_prefixes + (
-            f"https://{Config.AWS_S3_BUCKET}.s3.{Config.AWS_S3_REGION}.amazonaws.com/",
-        )
+    if is_local_upload:
+        form = await request.form()
+        uploaded_file = form.get("file")
+        if not uploaded_file:
+            raise HTTPException(status_code=400, detail="No file provided")
+        file_name = uploaded_file.filename
+        file_url = None
+    else:
+        try:
+            data = await request.json()
+            file_url = data.get("url")
+            file_name = data.get("name")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON data")
 
-    if not any(file_url.startswith(p) for p in allowed_prefixes):
-        raise HTTPException(status_code=400, detail="File URL origin not allowed")
-
-    # Async path: dispatch Celery task
-    if _celery_available:
-        from tasks.document_tasks import index_document_task
-        task = index_document_task.delay(session_id, current_user.id, file_url, file_name)
-        logger.info("document.task.dispatched", task_id=task.id, session_id=session_id)
-        return {"task_id": task.id, "status": "queued"}
-
-    # Synchronous fallback
     import unicodedata
     from werkzeug.utils import secure_filename
-    # Strip non-ASCII before handing to secure_filename to prevent ChromaDB key collisions
     safe_name = unicodedata.normalize("NFKD", file_name).encode("ascii", "ignore").decode("ascii")
     document_id = f"{session_id}_{secure_filename(safe_name)}_{datetime.now().strftime('%H%M%S')}"
 
-    try:
-        idx_result = await rag_service.index_from_url_async(
-            file_url, file_name, document_id, session_id, current_user.id
-        )
-    except Exception as exc:
-        logger.error("document.index.failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Failed to index document: {file_name}")
+    if is_local_upload:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        saved_filename = f"{timestamp}_{secure_filename(safe_name)}"
+        filepath = os.path.join(Config.UPLOAD_FOLDER, saved_filename)
+        try:
+            content = await uploaded_file.read()
+            with open(filepath, "wb") as f:
+                f.write(content)
+        except Exception as exc:
+            logger.error("document.upload.failed", error=str(exc))
+            raise HTTPException(status_code=500, detail="Failed to save uploaded file")
+
+        # Extract synchronously
+        try:
+            loop = asyncio.get_event_loop()
+            idx_result = await loop.run_in_executor(
+                None,
+                rag_service.index_document,
+                filepath, document_id, session_id, current_user.id
+            )
+            # Create a URL that points to our StaticFiles mount
+            base_url = str(request.base_url).rstrip("/")
+            file_url = f"{base_url}/static/uploads/{saved_filename}"
+            
+            # File stays on disk so frontend can fetch via file_url later
+        except Exception as exc:
+            logger.error("document.local_index.failed", error=str(exc))
+            try:
+                os.remove(filepath)
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail=f"Failed to index local document: {file_name}")
+
+    else:
+        allowed_prefixes = ALLOWED_URL_PREFIXES
+        if Config.S3_ENABLED and Config.AWS_S3_BUCKET:
+            allowed_prefixes = allowed_prefixes + (
+                f"https://{Config.AWS_S3_BUCKET}.s3.{Config.AWS_S3_REGION}.amazonaws.com/",
+            )
+        if file_url and not any(file_url.startswith(p) for p in allowed_prefixes):
+            raise HTTPException(status_code=400, detail="File URL origin not allowed")
+
+        if _celery_available:
+            from tasks.document_tasks import index_document_task
+            task = index_document_task.delay(session_id, current_user.id, file_url, file_name)
+            logger.info("document.task.dispatched", task_id=task.id, session_id=session_id)
+            return {"task_id": task.id, "status": "queued"}
+
+        try:
+            idx_result = await rag_service.index_from_url_async(
+                file_url, file_name, document_id, session_id, current_user.id
+            )
+        except Exception as exc:
+            logger.error("document.index.failed", error=str(exc))
+            raise HTTPException(status_code=500, detail=f"Failed to index document: {file_name}")
 
     doc_record = SessionDocument(
         session_id=session_id,

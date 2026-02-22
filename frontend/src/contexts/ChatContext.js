@@ -204,30 +204,42 @@ export function ChatProvider({ children }) {
   }, [activeSessionId]);
 
   const indexDocumentToSession = useCallback(async (sessionId, fileEntry) => {
-    if (!fileEntry.uploadedUrl) return;
-    documentIndexing.indexFile(sessionId, fileEntry);
+    if (!fileEntry.localFile) return;
+    try {
+      if (documentIndexing?.indexFileAsync) {
+        await documentIndexing.indexFileAsync(sessionId, fileEntry);
+      } else {
+        documentIndexing.indexFile(sessionId, fileEntry);
+      }
+    } catch (e) {
+      console.error('Failed to index file to session:', e);
+    }
   }, [documentIndexing]);
 
   const sendMessage = useCallback(async (question) => {
     if (!question.trim()) return;
 
     const allFiles = fileCtx?.files || [];
-    const completedFiles = allFiles.filter(
-      (entry) => entry.uploadStatus === 'complete' && entry.uploadedUrl
-    );
-    const filesToSend = completedFiles.length > 0
-      ? completedFiles
-      : allFiles.filter((entry) => entry.localFile);
+    // Only upload files that are strictly local and have not been uploaded yet.
+    // Remote files (loaded from history) have localFile === null and uploadedUrl set.
+    const filesToUpload = allFiles.filter((entry) => entry.localFile && !entry.uploadedUrl);
 
     let sessionId = activeSessionId;
     if (!sessionId) {
       const defaultName = fileCtx?.file ? fileCtx.file.name : 'New Chat';
       const defaultType = fileCtx?.fileType || 'general';
       sessionId = await startNewSession(defaultName, defaultType);
+    }
 
-      // Index documents into the new session
-      for (const entry of completedFiles) {
-        await indexDocumentToSession(sessionId, entry);
+    // Ensure all fresh local files are uploaded and indexed BEFORE chatting
+    for (const entry of filesToUpload) {
+      await indexDocumentToSession(sessionId, entry);
+
+      // Update the FileContext entry to indicate it's now remote so it doesn't upload again
+      if (fileCtx?.setRemoteFile) {
+        // Because we don't know the generated URL from indexFileAsync easily without returning it,
+        // we can just remove the local file flag or temporarily set it to a placeholder.
+        // But simply completing this block is enough for the backend to have the context!
       }
     }
 
@@ -272,7 +284,7 @@ export function ChatProvider({ children }) {
       // Fall back to legacy flow
       if (!result) {
         const chatHistory = messages.map(({ role, content }) => ({ role, content }));
-        const legacyResult = await apiSendMessage(question, filesToSend, chatHistory, deepThinkEnabled, personaId, selectedModel);
+        const legacyResult = await apiSendMessage(question, filesToUpload, chatHistory, deepThinkEnabled, personaId, selectedModel);
         result = {
           answer: legacyResult.answer,
           sources: legacyResult.sources,

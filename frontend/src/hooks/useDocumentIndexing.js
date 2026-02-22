@@ -114,7 +114,7 @@ export default function useDocumentIndexing() {
 
   // Mutation to trigger indexing
   const indexMutation = useMutation({
-    mutationFn: ({ sessionId, url, name }) => indexDocument(sessionId, { url, name }),
+    mutationFn: ({ sessionId, url, name, file }) => indexDocument(sessionId, { url, name, file }),
     onSuccess: (data) => {
       if (data?.task_id) {
         // Async path — got a Celery task_id
@@ -151,6 +151,26 @@ export default function useDocumentIndexing() {
         sessionId,
         url: fileEntry.uploadedUrl,
         name: fileEntry.fileName,
+        file: fileEntry.uploadedUrl ? null : fileEntry.localFile,
+      });
+    },
+    [indexMutation]
+  );
+
+  const indexFileAsync = useCallback(
+    async (sessionId, fileEntry) => {
+      setError(null);
+      setDocument(null);
+      setPhase('queued');
+      setProgress(5);
+      setPollingActive(false);
+      completedRef.current = false;
+      socketReceivedRef.current = false;
+      return await indexMutation.mutateAsync({
+        sessionId,
+        url: fileEntry.uploadedUrl,
+        name: fileEntry.fileName,
+        file: fileEntry.uploadedUrl ? null : fileEntry.localFile,
       });
     },
     [indexMutation]
@@ -169,6 +189,7 @@ export default function useDocumentIndexing() {
 
   return {
     indexFile,
+    indexFileAsync,
     phase,
     phaseLabel: PHASE_LABELS[phase] || null,
     progress,

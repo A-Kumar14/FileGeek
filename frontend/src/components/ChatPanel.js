@@ -3,7 +3,6 @@ import { Box, TextField, Typography, Dialog, DialogContent } from '@mui/material
 import { useChatContext } from '../contexts/ChatContext';
 import { useFile } from '../contexts/FileContext';
 import { useModelContext } from '../contexts/ModelContext';
-import { useAuth } from '../contexts/AuthContext';
 import QuizFlashcardDialog from './QuizFlashcardDialog';
 import ThinkingBlock from './ThinkingBlock';
 import DiscoveryDashboard from './DiscoveryDashboard';
@@ -16,7 +15,6 @@ export default function ChatPanel() {
   const { activeSessionId, messages, isLoading, streamingContent, startNewSession, chatSessions } = useChatContext();
   const { file, goToSourcePage } = useFile();
   const { selectedModel } = useModelContext();
-  const { user } = useAuth();
 
   const [showPrompts] = useState(true);
   const [copiedId, setCopiedId] = useState(null);

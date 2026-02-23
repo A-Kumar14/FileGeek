@@ -66,7 +66,6 @@ class ExploreRequest(BaseModel):
 
 class ExploreSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=500)
-    use_poe_search: bool = False
     session_id: Optional[str] = None
 
 

@@ -1,65 +1,78 @@
-# FileGeek — Multimodal AI Document Workspace
+# FileGeek — AI Document Intelligence Platform
 
-FileGeek is a full-stack document analysis platform that combines RAG (Retrieval-Augmented Generation), agentic tool-calling, and long-term memory to create an intelligent study companion. Upload PDFs, Word docs, images, or audio recordings and have AI-powered conversations with your documents.
+FileGeek is a full-stack document intelligence platform combining RAG (Retrieval-Augmented Generation), agentic tool-calling, and long-term memory into an intelligent study companion. Upload PDFs, Word docs, images, or audio and have grounded AI conversations with your documents.
 
 ## Features
 
-### Core Capabilities
-- **Persistent RAG** — Documents are indexed into ChromaDB with session-scoped vector storage; context survives across conversations
-- **Agentic Tool-Calling** — AI can search documents, generate quizzes, create study guides, flashcards, and produce Mermaid diagrams through a multi-round tool-calling loop
-- **Long-Term Memory** — The system remembers past interactions and learns user preferences from thumbs-up/down feedback
-- **Dual AI Provider** — Supports both Google Gemini and OpenAI, controlled via `AI_PROVIDER` env var (auto-detects from available keys)
-- **Server-Backed Sessions** — Chat sessions persist in SQLite with full message history, sources, and artifacts
-- **6 AI Personas** — Academic Mentor, Professional Analyst, Casual Helper, Albert Einstein, Gen-Z Tutor, Sherlock Holmes
-- **Multimodal Input** — PDF, DOCX, TXT, images (with OCR), and audio files (transcribed via Whisper)
+### Core AI
+- **Zero-Hallucination RAG** — When documents are uploaded, the AI is forced to retrieve from ChromaDB before answering. If information isn't in your document, it says so — no guessing.
+- **Agentic Tool-Calling** — Multi-round tool loop: the AI can search documents, generate quizzes, create study guides, produce flashcard decks, and render Mermaid diagrams
+- **SSE Streaming** — Responses stream token-by-token via Server-Sent Events
+- **Long-Term Memory** — Learns user preferences from thumbs-up/down feedback; context surfaces across sessions
 
-### Interactive Study Tools 🆕
-- **Interactive Quizzes** — Generate multiple-choice quizzes from document content with real-time scoring, visual feedback, and retry capability
-- **Flashcards with Spaced Repetition** — Create flashcards with 3D flip animation, mark as "Review" or "Know It", and track progress with SM-2 spaced repetition algorithm. Progress persists across sessions.
+### Study Tools
+- **Interactive Flashcards** — Flip cards, difficulty badges (easy/medium/hard), progress bar, SM-2 spaced repetition scheduling
+- **Artifacts Sidebar** — All generated artifacts (quizzes, flashcards, diagrams) collected in a left-drawer gallery
+- **Quizzes** — Multiple-choice with real-time scoring and retry
+- **Study Guides & Diagrams** — Mermaid.js diagrams and structured study outlines
 
-### User Interface
-- **Voice Input** — Browser-based speech-to-text via Web Speech API
-- **Interactive PDF Viewer** — Built with react-pdf; text selection, highlights, annotations, sticky notes, and "Ask AI" on selected text
-- **Artifacts Panel** — Structured AI outputs (quizzes, flashcards, study guides, Mermaid diagrams) render in a dedicated side panel
-- **Export** — Markdown, Evernote (.enex), and Notion integration
-- **Text-to-Speech** — Listen to AI responses with persona-specific voices via OpenAI TTS
+### Document Support
+- PDF, DOCX, TXT, images (OCR via pytesseract), audio (Whisper transcription)
+- Multi-file upload per session
+- Async indexing via Celery + Socket.IO real-time progress
 
-### Integrations
-- **MCP Integration** — Model Context Protocol server for connecting to Claude Desktop or other MCP clients
+### UI
+- **Cortex Theme** — Light purple/white design with Inter font; glassmorphism command bar (⌘K)
+- **Command Palette** — Switch models, themes, and workflows (Socratic / Podcast mode) via ⌘K
+- **Interactive PDF Viewer** — Highlights, annotations, source navigation from AI citations `[SRC:N]`
+- **Voice Input** — Browser speech-to-text; optional voice-to-research synthesis with document context
+- **Export** — Markdown, Evernote (.enex), Notion integration
+- **TTS** — Listen to AI responses via OpenAI TTS
 
-### Performance 🆕
-- **Optimized Rendering** — 50-70% faster UI rendering with React.memo and memoization
-- **Code-Splitting** — 150KB smaller bundle through lazy-loaded components
-- **Debounced State** — Smooth typing and scrolling with optimized state management
+### AI Providers
+Provider is auto-detected from available environment keys (priority order):
+
+| Priority | Provider | Chat | Embeddings |
+|----------|----------|------|------------|
+| 1 | OpenRouter | ✅ (`openai/gpt-4o` default) | ❌ (falls back) |
+| 2 | OpenAI | ✅ (`gpt-4o`) | ✅ (`text-embedding-3-small`) |
+| 3 | Google Gemini | ✅ (`gemini-2.0-flash`) | ✅ (`gemini-embedding-001`) |
+| 4 | Poe | ✅ | ❌ |
 
 ## Architecture
 
 ```
 FileGeek/
-├── backend/                    # Flask API server
-│   ├── app.py                  # Main Flask app with all endpoints
-│   ├── auth.py                 # JWT authentication (signup/login)
-│   ├── models.py               # SQLAlchemy models (User, StudySession, ChatMessage, SessionDocument)
-│   ├── config.py               # Centralized configuration
+├── backend/                     # FastAPI server
+│   ├── main.py                  # FastAPI app, all route handlers
+│   ├── database.py              # Async SQLAlchemy + get_db()
+│   ├── models_async.py          # SQLAlchemy 2.x Mapped models
+│   ├── schemas.py               # Pydantic v2 request schemas
+│   ├── config.py                # Centralized configuration
+│   ├── dependencies.py          # get_current_user, CurrentUser, DB
+│   ├── celery_db.py             # Sync SQLAlchemy for Celery workers
+│   ├── socket_manager.py        # Socket.IO with AsyncRedisManager
+│   ├── routers/
+│   │   └── auth.py              # JWT signup/login/refresh (rate-limited)
 │   ├── services/
-│   │   ├── ai_service.py       # Dual-provider AI (Gemini + OpenAI) with agentic tool-calling
-│   │   ├── file_service.py     # File extraction (PDF, DOCX, TXT, images, audio)
-│   │   ├── rag_service.py      # RAG indexing/retrieval + long-term memory
-│   │   └── tools.py            # Tool definitions and executor for agentic pipeline
-│   └── mcp/                    # Model Context Protocol server
-│       ├── server.py           # MCP stdio server
-│       └── tools.py            # MCP tool definitions
-├── frontend/                   # React 19 + MUI 7 SPA
+│   │   ├── ai_service.py        # Multi-provider AI + agentic tool loop
+│   │   ├── file_service.py      # File extraction (PDF, DOCX, images, audio)
+│   │   ├── rag_service.py       # ChromaDB indexing, retrieval, memory
+│   │   └── tools.py             # Tool definitions and executor
+│   ├── tasks/
+│   │   └── document_tasks.py    # Celery async document indexing
+│   └── utils/
+│       └── validators.py        # Input validation + prompt injection detection
+├── frontend/                    # React 18 + MUI 5 SPA
 │   └── src/
-│       ├── api/                # Axios API clients (sessions, general)
-│       ├── components/         # UI components (ChatPanel, PdfViewer, ArtifactPanel, etc.)
-│       ├── contexts/           # React contexts (Chat, File, Persona, Annotation, Theme)
-│       ├── hooks/              # Custom hooks (useChat)
-│       ├── pages/              # MainLayout with responsive bento grid
-│       └── theme/              # MUI theme + dark mode
-├── uploadthing-server/         # Express sidecar for file uploads via UploadThing
-├── requirements.txt            # Python dependencies
-└── Dockerfile                  # Container build
+│       ├── api/                 # Fetch-based API clients (sessions, SSE streaming)
+│       ├── components/          # ChatPanel, PdfViewer, ArtifactPanel, CommandPalette, etc.
+│       ├── contexts/            # ChatContext, FileContext, ModelContext, ThemeContext
+│       ├── hooks/               # useDocumentIndexing, useIndexingStatus (Socket.IO)
+│       └── pages/               # MainLayout, DiscoveryDashboard, ExplorePage
+├── uploadthing-server/          # Express sidecar for UploadThing file uploads
+├── requirements.txt
+└── Dockerfile
 ```
 
 ## Quick Start
@@ -68,12 +81,12 @@ FileGeek/
 
 - Python 3.10+
 - Node.js 18+
-- At least one AI provider key: `GOOGLE_API_KEY` (Gemini) or `OPENAI_API_KEY`
+- At least one AI provider key (see Environment Variables below)
 
 ### 1. Clone
 
 ```bash
-git clone https://github.com/A-Kumar14/FileGeek-Main.git
+git clone https://github.com/A-Kumar14/FileGeek.git
 cd FileGeek-Main
 ```
 
@@ -86,23 +99,32 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r ../requirements.txt
 ```
 
-Create a `.env` file in the project root:
+Create a `.env` file inside `backend/`:
 
 ```env
-# Required — at least one AI provider
+# Required — JWT signing key (MUST be set; server refuses to start without it)
+# Generate: python -c "import secrets; print(secrets.token_hex(32))"
+JWT_SECRET=your-secret-key-here
+
+# AI provider — set at least one
+OPENROUTER_API_KEY=your_openrouter_key   # preferred
+OPENAI_API_KEY=your_openai_key           # also used for Whisper + TTS
 GOOGLE_API_KEY=your_gemini_key
-OPENAI_API_KEY=your_openai_key
 
 # Optional
-AI_PROVIDER=gemini          # or "openai"; auto-detects if unset
-JWT_SECRET=your-secret-key
-UPLOADTHING_TOKEN=your_ut_token
+OPENROUTER_CHAT_MODEL=openai/gpt-4o     # override default model
+REDIS_URL=redis://localhost:6379/0       # required for Celery + Socket.IO
+DATABASE_URL=sqlite+aiosqlite:///./instance/users.db
+UPLOAD_FOLDER=uploads
+NUM_RETRIEVAL_CHUNKS=5
 ```
 
 Start the backend:
 
 ```bash
-python app.py
+python main.py
+# or production:
+gunicorn -w 2 -k uvicorn.workers.UvicornWorker main:app
 ```
 
 ### 3. Frontend
@@ -113,74 +135,84 @@ npm install
 npm start
 ```
 
-### 4. UploadThing Sidecar (optional, for cloud file uploads)
+### 4. (Optional) Celery worker for async document indexing
 
 ```bash
-cd uploadthing-server
-npm install
-npm start
+cd backend
+celery -A celery_app worker --loglevel=info
 ```
 
 ### Open the App
 
 - Frontend: http://localhost:3000
-- Backend API: http://localhost:5000
-- Health check: http://localhost:5000/health
+- Backend API: http://localhost:5001
+- Health check: http://localhost:5001/health
 
 ## API Endpoints
 
-| Endpoint | Method | Auth | Description |
-|---|---|---|---|
-| `/health` | GET | No | Health check |
-| `/personas` | GET | No | List available AI personas |
-| `/auth/signup` | POST | No | Create account |
-| `/auth/login` | POST | No | Login and get JWT |
-| `/sessions` | GET | JWT | List user's study sessions |
-| `/sessions` | POST | JWT | Create a new session |
-| `/sessions/<id>` | GET | JWT | Get session with messages and documents |
-| `/sessions/<id>` | DELETE | JWT | Delete session and cleanup vectors |
-| `/sessions/<id>/documents` | POST | JWT | Index a document into a session |
-| `/sessions/<id>/messages` | POST | JWT | Send message (agentic RAG pipeline) |
-| `/messages/<id>/feedback` | POST | JWT | Thumbs up/down on a message |
-| `/transcribe` | POST | JWT | Transcribe audio via Whisper |
-| `/tts` | POST | JWT | Text-to-speech with persona voice |
-| `/upload` | POST | JWT | Legacy: upload files + ask question |
-| `/ask` | POST | JWT | Legacy: CDN file URLs + ask question |
-| `/export/markdown` | POST | JWT | Export as Markdown |
-| `/export/notion` | POST | JWT | Export to Notion |
-| `/export/enex` | POST | JWT | Export as Evernote .enex |
+| Endpoint | Method | Auth | Rate Limit | Description |
+|---|---|---|---|---|
+| `/health` | GET | No | — | Service health (ChromaDB, Redis, embeddings) |
+| `/auth/signup` | POST | No | 5/min | Create account |
+| `/auth/login` | POST | No | 10/min | Login, returns JWT + sets refresh cookie |
+| `/auth/refresh` | POST | Cookie | 30/min | Rotate access token via httpOnly refresh cookie |
+| `/auth/logout` | POST | No | — | Clear refresh cookie |
+| `/sessions` | GET | JWT | — | List sessions (ETag cached) |
+| `/sessions` | POST | JWT | — | Create session |
+| `/sessions/{id}` | GET | JWT | — | Session + messages + documents |
+| `/sessions/{id}` | DELETE | JWT | — | Delete session and vector data |
+| `/sessions/{id}/documents` | POST | JWT | 20/min | Index document(s) into session |
+| `/sessions/{id}/messages` | POST | JWT | 20/min | Send message (SSE streaming response) |
+| `/sessions/{id}/related` | GET | JWT | 30/min | Semantically related documents |
+| `/messages/{id}/feedback` | POST | JWT | — | Thumbs up/down |
+| `/flashcards/generate` | POST | JWT | 10/min | Direct flashcard generation |
+| `/flashcards/progress` | POST | JWT | — | Save SM-2 card progress |
+| `/flashcards/due` | GET | JWT | — | Cards due for review today |
+| `/quiz/generate` | POST | JWT | 10/min | Direct quiz generation |
+| `/quiz/results` | POST | JWT | — | Save quiz score |
+| `/analytics/summary` | GET | JWT | — | Quiz/flashcard analytics |
+| `/transcribe` | POST | JWT | 10/min | Whisper audio transcription |
+| `/tts` | POST | JWT | 10/min | Text-to-speech (OpenAI TTS) |
+| `/explore/search` | POST | JWT | 15/min | Search-augmented generation (SSE) |
+| `/export/markdown` | POST | JWT | — | Export as Markdown |
+| `/export/notion` | POST | JWT | — | Export to Notion |
+| `/export/enex` | POST | JWT | — | Export as Evernote .enex |
+| `/tasks/{task_id}` | GET | JWT | — | Celery task status polling |
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |---|---|---|
+| `JWT_SECRET` | **Yes** | JWT signing secret — server exits on startup if unset |
+| `OPENROUTER_API_KEY` | One of these | OpenRouter key (access to GPT-4o, Gemini, etc.) |
+| `OPENAI_API_KEY` | One of these | Also required for Whisper transcription and TTS |
 | `GOOGLE_API_KEY` | One of these | Gemini API key |
-| `OPENAI_API_KEY` | One of these | OpenAI API key (also needed for TTS and Whisper) |
-| `AI_PROVIDER` | No | Force `gemini` or `openai` (auto-detects if unset) |
-| `JWT_SECRET` | Recommended | Secret for JWT signing (must match across services) |
-| `UPLOADTHING_TOKEN` | For uploads | UploadThing API token |
-| `FLASK_PORT` | No | Backend port (default: 5000) |
-| `NUM_RETRIEVAL_CHUNKS` | No | RAG chunks per query (default: 5) |
-| `GITHUB_TOKEN` | No | For MCP GitHub repo search tool |
+| `OPENROUTER_CHAT_MODEL` | No | Override chat model (default: `openai/gpt-4o`) |
+| `REDIS_URL` | For Celery/Sockets | Redis connection URL (default: `redis://localhost:6379/0`) |
+| `DATABASE_URL` | No | Async DB URL (default: `sqlite+aiosqlite:///./instance/users.db`) |
+| `UPLOAD_FOLDER` | No | File upload directory (default: `uploads`) |
+| `CORS_ORIGINS` | No | Comma-separated extra allowed origins |
+| `HTTPS_ONLY` | No | Set `true` in production to enforce secure cookies |
+| `NUM_RETRIEVAL_CHUNKS` | No | RAG chunks per query (default: `5`) |
+| `DEEP_THINK_CHUNKS` | No | Chunks in deep-think mode (default: `12`) |
 
 ## Deployment
 
-- **Frontend**: Deployed on Vercel (auto-builds from `frontend/`)
-- **Backend**: Deployed on Render (uses `Dockerfile` or `gunicorn`)
-- **UploadThing Sidecar**: Co-deployed with backend or as separate service
+- **Frontend**: Vercel (auto-builds from `frontend/`; set `CI=false` to suppress ESLint warnings as errors)
+- **Backend**: Render via Docker (`gunicorn -w 2 -k uvicorn.workers.UvicornWorker main:app`)
+- **CI/CD**: GitHub Actions — lint + build on every push/PR; deploy to Vercel + Render on merge to `main`
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 19, MUI 7, react-pdf, Mermaid, KaTeX, react-markdown |
-| Backend | Flask, SQLAlchemy (SQLite), ChromaDB, gunicorn |
-| AI | Google Gemini, OpenAI GPT-4o, Whisper, TTS |
+| Frontend | React 18, MUI 5, react-pdf, Mermaid.js, KaTeX, react-markdown |
+| Backend | FastAPI, SQLAlchemy 2.x (async), SQLite + aiosqlite, gunicorn + uvicorn |
+| AI | OpenRouter, OpenAI GPT-4o, Google Gemini 2.0 Flash, Whisper, TTS |
+| Vector Store | ChromaDB (session + user scoped) |
+| Task Queue | Celery + Redis |
+| Real-time | Socket.IO (python-socketio + AsyncRedisManager) |
 | File Processing | pdfplumber, PyMuPDF, python-docx, pytesseract, Pillow |
 | Uploads | UploadThing (Express sidecar) |
-| Auth | JWT (PyJWT + bcrypt) |
-| Protocol | MCP (Model Context Protocol) |
+| Auth | JWT (PyJWT + bcrypt), httpOnly refresh cookie, slowapi rate limiting |
 
-## License
-
-MIT

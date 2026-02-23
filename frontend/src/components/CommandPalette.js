@@ -35,6 +35,7 @@ import { useChatContext } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useThemeMode } from '../theme/ThemeContext';
 import { useModelContext } from '../contexts/ModelContext';
+import { MODELS } from './ModelSelector';
 
 export default function CommandPalette({ onOpenDashboard }) {
   const [open, setOpen] = useState(false);
@@ -210,14 +211,7 @@ export default function CommandPalette({ onOpenDashboard }) {
     );
 
     // ── MODEL SELECTION ────────────────────────────────────────────────────────
-    // null = let backend pick its configured default (safest, avoids mismatched model names)
-    const MODELS = [
-      { id: null, name: 'Backend Default', badge: 'AUTO' },
-      { id: 'gpt-4o', name: 'GPT-4o', badge: 'OPENAI' },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', badge: 'OPENAI' },
-      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', badge: 'GEMINI' },
-      { id: 'grok-3', name: 'Grok 3 (Poe)', badge: 'POE' },
-    ];
+    // Uses the same MODELS list as ModelSelector.js (imported above)
     MODELS.forEach((m) => {
       cmds.push({
         id: `model-${m.id ?? 'default'}`,

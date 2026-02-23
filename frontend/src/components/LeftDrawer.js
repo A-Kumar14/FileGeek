@@ -6,7 +6,7 @@ import {
 import ExploreIcon from '@mui/icons-material/Explore';
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import FolderIcon from '@mui/icons-material/Folder';
-import HistoryIcon from '@mui/icons-material/History';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -22,12 +22,13 @@ import { useChatContext } from '../contexts/ChatContext';
 import { useNavigate } from 'react-router-dom';
 import LibraryPopout from './LibraryPopout';
 import FilesPopout from './FilesPopout';
+import ArtifactsPopout from './ArtifactsPopout';
 
 const NAV_ITEMS = [
   { key: 'explore', label: 'Explore', icon: ExploreIcon },
   { key: 'library', label: 'Library', icon: LibraryBooksIcon },
   { key: 'files', label: 'Files', icon: FolderIcon },
-  { key: 'history', label: 'History', icon: HistoryIcon },
+  { key: 'artifacts', label: 'Artifacts', icon: AutoAwesomeIcon },
 ];
 
 function groupByDate(sessions) {
@@ -59,9 +60,8 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
   const [search, setSearch] = useState('');
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
-  const [historyHighlighted, setHistoryHighlighted] = useState(false);
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [loadingSessionId, setLoadingSessionId] = useState(null);
-  const historyRef = useRef(null);
 
   const initials = user?.name
     ? user.name.split(' ').map((p) => p[0]).join('').toUpperCase().slice(0, 2)
@@ -110,10 +110,9 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
       if (onClose && collapsed) onClose();
     } else if (key === 'upload') {
       uploadInputRef.current?.click();
-    } else if (key === 'history') {
-      setHistoryHighlighted(true);
-      setTimeout(() => setHistoryHighlighted(false), 1500);
-      if (historyRef.current) historyRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (key === 'artifacts') {
+      setArtifactsOpen(true);
+      if (onClose && collapsed) onClose();
     }
   };
 
@@ -260,12 +259,9 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
 
       {/* ── Date-grouped chat history ── */}
       <Box
-        ref={historyRef}
         sx={{
           flex: 1, overflowY: 'auto', overflowX: 'hidden', minHeight: 0,
           borderRadius: '8px',
-          outline: historyHighlighted ? '2px solid var(--accent)' : '2px solid transparent',
-          transition: 'outline 0.2s ease',
         }}
       >
         {GROUP_ORDER.map((label) => {
@@ -450,6 +446,7 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
       {/* Popouts */}
       <LibraryPopout open={libraryOpen} onClose={() => setLibraryOpen(false)} />
       <FilesPopout open={filesOpen} onClose={() => setFilesOpen(false)} />
+      <ArtifactsPopout open={artifactsOpen} onClose={() => setArtifactsOpen(false)} />
     </Box>
   );
 }

@@ -828,6 +828,15 @@ async def send_session_message(
 
     model_override = custom_model or (AIService.RESPONSE_MODEL if deep_think else None)
 
+    # Check if this session has indexed documents — drives zero-hallucination mode
+    try:
+        docs_count_result = await db.execute(
+            select(func.count()).where(SessionDocument.session_id == session_id)
+        )
+        has_documents = (docs_count_result.scalar() or 0) > 0
+    except Exception:
+        has_documents = False
+
     async def generate_response():
         loop = asyncio.get_event_loop()
         try:
@@ -843,6 +852,7 @@ async def send_session_message(
                     model_override=model_override,
                     memory_context=memory_context,
                     preference_context=preference_context,
+                    has_documents=has_documents,
                 ),
             )
         except Exception as exc:
@@ -1946,7 +1956,6 @@ async def explore_search(request: Request, body: ExploreSearchRequest, current_u
     Streams a Search-Augmented Generation response for the Explore Hub.
     Returns Server-Sent Events with chunk / sources / error / done events.
     """
-    poe_key = request.headers.get("X-Poe-Api-Key")
 
     # Mark the session as an explore session if session_id provided
     if body.session_id:
@@ -1966,11 +1975,7 @@ async def explore_search(request: Request, body: ExploreSearchRequest, current_u
 
     def _stream():
         try:
-            yield from ai_service.explore_the_web(
-                query=body.query,
-                use_poe_search=body.use_poe_search,
-                poe_api_key=poe_key,
-            )
+            yield from ai_service.explore_the_web(query=body.query)
         except Exception as exc:
             import json
             logger.error("explore_search.failed", error=str(exc))

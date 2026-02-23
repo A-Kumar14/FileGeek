@@ -3,6 +3,7 @@ import { Box, Typography, Tooltip, Button } from '@mui/material';
 import { useChatContext } from '../contexts/ChatContext';
 import { useFile } from '../contexts/FileContext';
 import QuizFlashcardDialog from './QuizFlashcardDialog';
+import FlashcardOverlay from './FlashcardOverlay';
 import axios from 'axios';
 
 function MermaidDiagram({ code }) {
@@ -189,11 +190,52 @@ function QuizCard({ data, onOpenDialog, messageId, sessionId, topic }) {
   );
 }
 
-function ArtifactRenderer({ artifact, sessionId, onOpenQuizDialog, goToSourcePage }) {
+function FlashcardPreview({ artifact, onOpenOverlay }) {
+  const cards = artifact.content || [];
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.78rem', color: 'var(--fg-secondary)' }}>
+        {cards.length} cards
+        {artifact.topic ? ` · ${artifact.topic}` : ''}
+      </Typography>
+      <Button
+        onClick={onOpenOverlay}
+        size="small"
+        sx={{
+          fontFamily: 'var(--font-family)', fontSize: '0.78rem', fontWeight: 600,
+          textTransform: 'none', color: '#FFF', bgcolor: 'var(--accent)',
+          borderRadius: '8px', px: 2, alignSelf: 'flex-start',
+          '&:hover': { bgcolor: 'var(--accent)', opacity: 0.88 },
+        }}
+      >
+        Review Flashcards →
+      </Button>
+    </Box>
+  );
+}
+
+function ArtifactRenderer({ artifact, sessionId, onOpenQuizDialog, onOpenFlashcards, goToSourcePage }) {
   const type = artifact.artifact_type || artifact.viz_type || 'unknown';
+
+  // No content — show message if available
+  if (!artifact.content && artifact.message) {
+    return (
+      <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.82rem', color: 'var(--fg-secondary)', fontStyle: 'italic' }}>
+        {artifact.message}
+      </Typography>
+    );
+  }
 
   if (type === 'visualization' && artifact.viz_type === 'mermaid' && artifact.content) {
     return <MermaidDiagram code={artifact.content} />;
+  }
+
+  if (type === 'visualization' && artifact.content) {
+    return (
+      <Box sx={{ overflow: 'auto', maxHeight: 400, p: 1 }}>
+        <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', margin: 0, fontFamily: 'var(--font-family)', color: 'var(--fg-primary)' }}>{artifact.content}</pre>
+      </Box>
+    );
   }
 
   if (type === 'quiz' && artifact.content) {
@@ -209,13 +251,29 @@ function ArtifactRenderer({ artifact, sessionId, onOpenQuizDialog, goToSourcePag
         />
       );
     } catch {
-      return <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', fontFamily: 'var(--font-family)', color: 'var(--fg-secondary)' }}>{artifact.content}</pre>;
+      return <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', fontFamily: 'var(--font-family)', color: 'var(--fg-secondary)' }}>{String(artifact.content)}</pre>;
     }
   }
 
-  const text = artifact.instruction || artifact.context || JSON.stringify(artifact, null, 2);
-  const sources = artifact.sources || [];
+  if (type === 'flashcards' && artifact.content && Array.isArray(artifact.content) && artifact.content.length > 0) {
+    return <FlashcardPreview artifact={artifact} onOpenOverlay={onOpenFlashcards ? () => onOpenFlashcards(artifact) : undefined} />;
+  }
 
+  if ((type === 'study_guide' || type === 'study-guide') && artifact.content) {
+    return (
+      <Box sx={{ overflow: 'auto', maxHeight: 500, p: 1 }}>
+        <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem', margin: 0, fontFamily: 'var(--font-family)', color: 'var(--fg-primary)', lineHeight: 1.6 }}>
+          {artifact.content}
+        </pre>
+      </Box>
+    );
+  }
+
+  // Generic fallback: prefer content field, then message
+  const text = artifact.content || artifact.message;
+  if (!text) return null;
+
+  const sources = artifact.sources || [];
   return (
     <Box sx={{ border: '1px solid var(--border)', borderRadius: '8px', p: 1.5, overflow: 'auto', maxHeight: 400 }}>
       {sources.length > 0 && (
@@ -243,12 +301,11 @@ export default function ArtifactPanel() {
   const { artifacts, clearArtifacts, activeSessionId } = useChatContext();
   const { goToSourcePage } = useFile();
   const [quizDialogData, setQuizDialogData] = useState(null);
+  const [flashcardOverlay, setFlashcardOverlay] = useState(null); // { cards, topic }
 
   if (!artifacts || artifacts.length === 0) return null;
 
   return (
-    // position:relative + zIndex:0 keeps this panel below MUI Drawer (z:1200)
-    // and GlobalCommandBar (z:1100) on small screens — no accidental overlap.
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'var(--bg-primary)', position: 'relative', zIndex: 0 }}>
       <Box sx={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -280,6 +337,7 @@ export default function ArtifactPanel() {
               artifact={artifact}
               sessionId={activeSessionId}
               onOpenQuizDialog={setQuizDialogData}
+              onOpenFlashcards={(a) => setFlashcardOverlay({ cards: a.content, topic: a.topic })}
               goToSourcePage={goToSourcePage}
             />
           </Box>
@@ -290,6 +348,13 @@ export default function ArtifactPanel() {
         open={Boolean(quizDialogData)}
         onClose={() => setQuizDialogData(null)}
         questions={quizDialogData || []}
+      />
+
+      <FlashcardOverlay
+        open={Boolean(flashcardOverlay)}
+        onClose={() => setFlashcardOverlay(null)}
+        cards={flashcardOverlay?.cards || []}
+        topic={flashcardOverlay?.topic}
       />
     </Box>
   );

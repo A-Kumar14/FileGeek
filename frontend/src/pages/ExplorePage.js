@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
-import { Box, Typography, Skeleton, Switch, FormControlLabel, Tooltip, CircularProgress } from '@mui/material';
+import { Box, Typography, Skeleton, Tooltip, CircularProgress } from '@mui/material';
 import { Search, Globe, BookmarkPlus, RotateCcw, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -239,7 +239,6 @@ export default function ExplorePage() {
     const exploreSessionRef = useRef(null);
 
     const [query, setQuery] = useState('');
-    const [usePoeSearch, setUsePoeSearch] = useState(false);
     const [phase, setPhase] = useState('idle');
     const [sources, setSources] = useState([]);
     const [answer, setAnswer] = useState('');
@@ -275,17 +274,14 @@ export default function ExplorePage() {
         }
 
         try {
-            const poeKey = localStorage.getItem('filegeek-poe-key') || '';
             const res = await fetch(`${API}/explore/search`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`,
-                    ...(poeKey ? { 'X-Poe-Api-Key': poeKey } : {}),
                 },
                 body: JSON.stringify({
                     query: q.trim(),
-                    use_poe_search: usePoeSearch,
                     session_id: exploreSessionRef.current || undefined,
                 }),
                 signal: abortRef.current.signal,
@@ -329,7 +325,7 @@ export default function ExplorePage() {
         } finally {
             setStreaming(false);
         }
-    }, [token, usePoeSearch, startNewSession]);
+    }, [token, startNewSession]);
 
     const handleSubmit = () => { if (query.trim()) runSearch(query); };
 
@@ -354,25 +350,6 @@ export default function ExplorePage() {
     // ── Controls strip ───────────────────────────────────────────────────────
     const Controls = (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <FormControlLabel
-                control={
-                    <Switch
-                        checked={usePoeSearch}
-                        onChange={(e) => setUsePoeSearch(e.target.checked)}
-                        size="small"
-                        sx={{
-                            '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--accent)' },
-                            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: 'var(--accent)' },
-                        }}
-                    />
-                }
-                label={
-                    <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.75rem', color: 'var(--fg-secondary)' }}>
-                        {usePoeSearch ? 'Poe Search' : 'Web Search'}
-                    </Typography>
-                }
-                sx={{ m: 0 }}
-            />
             {(phase === 'results' || phase === 'error') && (
                 <>
                     <Box

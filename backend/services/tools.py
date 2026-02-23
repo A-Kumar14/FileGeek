@@ -186,27 +186,22 @@ class ToolExecutor:
         return {"results": formatted, "total": len(formatted)}
 
     def _generate_quiz(self, args: dict, session_id: str, user_id: int) -> dict:
-        topic = args.get("topic", "the document content")
+        topic = args.get("topic", "general knowledge")
         num_questions = min(args.get("num_questions", 5), 10)
         model_override = args.get("model")
 
-        # First, search for relevant content
+        # Search for relevant content; fall back to general knowledge if none found
         result = self.rag_service.query(topic, session_id, user_id, n_results=6)
         chunks = result.get("chunks", [])
         logger.info(f"generate_quiz: session={session_id} chunks_retrieved={len(chunks)} topic={topic!r}")
         context = "\n\n".join(chunks)
 
-        if not context:
-            logger.warning(f"generate_quiz: NO chunks found for session={session_id} topic={topic!r}")
-            return {
-                "artifact_type": "quiz",
-                "content": None,
-                "message": "No document content found to generate a quiz from.",
-                "interactive": True,
-            }
+        if context:
+            source_hint = f"based on the provided context:\n\n{context}\n\n"
+        else:
+            source_hint = "using your general knowledge. "
 
-        instruction = f"""Generate {num_questions} multiple-choice questions about '{topic}' based on the provided context.
-
+        instruction = f"""Generate {num_questions} multiple-choice questions about '{topic}' {source_hint}
 IMPORTANT: Return ONLY a valid JSON array with no additional text, markdown formatting, or code blocks.
 
 Each question object must have these exact fields:
@@ -225,9 +220,8 @@ Example format:
   }}
 ]"""
 
-        # Sub-call: generate quiz content directly via AI, don't rely on outer agentic loop
         raw = self.ai_service.answer_from_context(
-            context_chunks=[context],
+            context_chunks=[context] if context else [],
             question=instruction,
             chat_history=[],
             model_override=model_override,
@@ -242,7 +236,7 @@ Example format:
         }
 
     def _create_study_guide(self, args: dict, session_id: str, user_id: int) -> dict:
-        topic = args.get("topic", "the document content")
+        topic = args.get("topic", "general knowledge")
         depth = args.get("depth", "standard")
         model_override = args.get("model")
 
@@ -251,17 +245,9 @@ Example format:
         logger.info(f"create_study_guide: session={session_id} chunks_retrieved={len(chunks)} topic={topic!r}")
         context = "\n\n".join(chunks)
 
-        if not context:
-            logger.warning(f"create_study_guide: NO chunks found for session={session_id} topic={topic!r}")
-            return {
-                "artifact_type": "study_guide",
-                "content": None,
-                "message": "No document content found to create a study guide from.",
-            }
-
         instruction = f"Create a {depth} study guide about '{topic}'. Include: overview, key concepts, detailed notes, review questions. Use Markdown formatting."
         content = self.ai_service.answer_from_context(
-            context_chunks=[context],
+            context_chunks=[context] if context else [],
             question=instruction,
             chat_history=[],
             model_override=model_override,
@@ -277,40 +263,59 @@ Example format:
     def _generate_visualization(self, args: dict, session_id: str, user_id: int) -> dict:
         description = args.get("description", "")
         viz_type = args.get("type", "mermaid")
+        model_override = args.get("model")
 
         result = self.rag_service.query(description, session_id, user_id, n_results=5)
         context = "\n\n".join(result.get("chunks", []))
 
+        if viz_type == "mermaid":
+            instruction = (
+                f"Generate a Mermaid diagram for: '{description}'. "
+                f"{'Use this document context:\n\n' + context if context else 'Use your general knowledge.'}\n\n"
+                "Return ONLY the raw Mermaid code — no markdown fences, no explanation, no extra text."
+            )
+        elif viz_type == "table":
+            instruction = (
+                f"Generate a Markdown table for: '{description}'. "
+                f"{'Use this document context:\n\n' + context if context else 'Use your general knowledge.'}\n\n"
+                "Return ONLY the Markdown table."
+            )
+        else:
+            instruction = (
+                f"Generate code for: '{description}'. "
+                f"{'Use this document context:\n\n' + context if context else 'Use your general knowledge.'}\n\n"
+                "Return ONLY the code."
+            )
+
+        content = self.ai_service.answer_from_context(
+            context_chunks=[context] if context else [],
+            question=instruction,
+            chat_history=[],
+            model_override=model_override,
+        )
+
+        # Strip any accidental markdown fences from mermaid output
+        if content and viz_type == "mermaid":
+            content = re.sub(r'```mermaid\s*', '', content).strip().rstrip('`').strip()
+
         return {
             "artifact_type": "visualization",
             "viz_type": viz_type,
-            "context": context,
+            "content": content,
             "description": description,
-            "instruction": f"Generate a {viz_type} visualization for: '{description}'. "
-                          f"{'Use Mermaid diagram syntax wrapped in ```mermaid code block.' if viz_type == 'mermaid' else ''}"
-                          f"{'Use a Markdown table.' if viz_type == 'table' else ''}"
-                          f"{'Use a code block with appropriate language tag.' if viz_type == 'code' else ''}",
         }
 
     def _generate_flashcards(self, args: dict, session_id: str, user_id: int) -> dict:
-        topic = args.get("topic", "the document content")
+        topic = args.get("topic", "general knowledge")
         num_cards = min(args.get("num_cards", 10), 20)
         card_type = args.get("card_type", "mixed")
         model_override = args.get("model")
 
-        # Search for relevant content
+        # Search for relevant content; fall back to general knowledge if none found
         result = self.rag_service.query(topic, session_id, user_id, n_results=8)
         chunks = result.get("chunks", [])
         logger.info(f"generate_flashcards: session={session_id} chunks_retrieved={len(chunks)} topic={topic!r}")
         context = "\n\n".join(chunks)
-
-        if not context:
-            logger.warning(f"generate_flashcards: NO chunks found for session={session_id} topic={topic!r}")
-            return {
-                "artifact_type": "flashcards",
-                "content": None,
-                "message": "No document content found to generate flashcards from.",
-            }
 
         card_type_instructions = {
             "definition": "Focus on term definitions and meanings.",
@@ -319,7 +324,12 @@ Example format:
             "mixed": "Include a variety of definitions, concepts, and facts.",
         }
 
-        instruction = f"""Generate {num_cards} flashcards about '{topic}' based on the provided context.
+        if context:
+            source_hint = f"based on the provided context:\n\n{context}\n\n"
+        else:
+            source_hint = "using your general knowledge. "
+
+        instruction = f"""Generate {num_cards} flashcards about '{topic}' {source_hint}
 {card_type_instructions.get(card_type, '')}
 
 IMPORTANT: Return ONLY a valid JSON array with no additional text, markdown formatting, or code blocks.
@@ -340,9 +350,8 @@ Example format:
   }}
 ]"""
 
-        # Sub-call: generate flashcard content directly via AI, don't rely on outer agentic loop
         raw = self.ai_service.answer_from_context(
-            context_chunks=[context],
+            context_chunks=[context] if context else [],
             question=instruction,
             chat_history=[],
             model_override=model_override,

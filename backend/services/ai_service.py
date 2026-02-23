@@ -106,20 +106,18 @@ class GeminiV1Embeddings(LCEmbeddings):
         return resp.json()["embedding"]["values"]
 
 
-if _provider == "poe":
-    AI_PROVIDER = "poe"
+if _provider == "openrouter":
+    AI_PROVIDER = "openrouter"
 elif _provider == "gemini":
     AI_PROVIDER = "gemini"
 elif _provider == "openai":
     AI_PROVIDER = "openai"
+elif os.getenv("OPENROUTER_API_KEY"):
+    AI_PROVIDER = "openrouter"
 elif os.getenv("OPENAI_API_KEY"):
-    # Prefer OpenAI when available — reliable function/tool calling support.
-    # Poe is still used as a fallback inside the agentic loop if Poe quota is exceeded.
     AI_PROVIDER = "openai"
 elif os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"):
     AI_PROVIDER = "gemini"
-elif os.getenv("POE_API_KEY"):
-    AI_PROVIDER = "poe"
 else:
     AI_PROVIDER = "openai"  # will raise a clear error at first use if no key
 
@@ -131,8 +129,6 @@ OpenAI = None
 
 if AI_PROVIDER == "gemini":
     import google.generativeai as genai  # noqa: F811
-elif AI_PROVIDER == "openai" or AI_PROVIDER == "poe":
-    from openai import OpenAI  # noqa: F811
 
 
 
@@ -175,25 +171,37 @@ class AIService:
     GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
     GEMINI_EMBEDDING_API_VERSION = os.getenv("GEMINI_EMBEDDING_API_VERSION", "v1beta")
 
-    # Poe models (Default)
-    POE_CHAT_MODEL = os.getenv("POE_CHAT_MODEL", "grok-3")
-    POE_RESPONSE_MODEL = os.getenv("POE_RESPONSE_MODEL", "grok-3")
-
     # OpenAI models
     OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o")
     OPENAI_RESPONSE_MODEL = os.getenv("OPENAI_RESPONSE_MODEL", "gpt-4o")
     OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
-    # Backward-compatible aliases
+    # OpenRouter models (uses OpenAI-compatible API at openrouter.ai/api/v1)
+    # Model IDs use the "provider/model-name" format e.g. "openai/gpt-4o"
+    OPENROUTER_CHAT_MODEL = os.getenv("OPENROUTER_CHAT_MODEL", "openai/gpt-4o")
+    OPENROUTER_RESPONSE_MODEL = os.getenv("OPENROUTER_RESPONSE_MODEL", "openai/gpt-4o")
+
+    # Map shorthand model IDs → OpenRouter full paths when provider is openrouter
+    _OR_ALIASES: dict = {
+        "gpt-4o":           "openai/gpt-4o",
+        "gpt-4o-mini":      "openai/gpt-4o-mini",
+        "gemini-2.0-flash": "google/gemini-2.0-flash-exp:free",
+        "grok-3":           "x-ai/grok-3",
+        "grok-3-mini":      "x-ai/grok-3-mini",
+        "claude-3.5-sonnet":"anthropic/claude-3.5-sonnet",
+        "claude-3-haiku":   "anthropic/claude-3-haiku",
+    }
+
+    # Provider-aware aliases
     if AI_PROVIDER == "gemini":
         CHAT_MODEL = GEMINI_CHAT_MODEL
         RESPONSE_MODEL = GEMINI_RESPONSE_MODEL
-    elif AI_PROVIDER == "openai":
+    elif AI_PROVIDER == "openrouter":
+        CHAT_MODEL = OPENROUTER_CHAT_MODEL
+        RESPONSE_MODEL = OPENROUTER_RESPONSE_MODEL
+    else:  # openai
         CHAT_MODEL = OPENAI_CHAT_MODEL
         RESPONSE_MODEL = OPENAI_RESPONSE_MODEL
-    else:
-        CHAT_MODEL = POE_CHAT_MODEL
-        RESPONSE_MODEL = POE_RESPONSE_MODEL
 
     def __init__(self):
         self.provider = AI_PROVIDER
@@ -221,39 +229,56 @@ class AIService:
                     model=self.OPENAI_EMBEDDING_MODEL,
                     openai_api_key=api_key,
                 )
-        else:
-            # Poe does not natively expose an embeddings endpoint on api.poe.com right now
-            # We'll default to falling back to OpenAI or Gemini embeddings if keys are present
+        elif self.provider == "openrouter":
+            # OpenRouter has no embeddings endpoint — use OPENAI_API_KEY or GOOGLE_API_KEY
             openai_key = os.getenv("OPENAI_API_KEY")
+            gemini_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
             if openai_key:
                 self.embeddings = OpenAIEmbeddings(
                     model=self.OPENAI_EMBEDDING_MODEL,
                     openai_api_key=openai_key,
                 )
+            elif gemini_key:
+                self.embeddings = GeminiV1Embeddings(
+                    api_key=gemini_key,
+                    model=self.GEMINI_EMBEDDING_MODEL,
+                    api_version=self.GEMINI_EMBEDDING_API_VERSION,
+                )
             else:
-                logger.warning("No embedding provider available for Poe. Provide OPENAI_API_KEY for embeddings.")
+                logger.warning("No embedding provider for OpenRouter. Provide OPENAI_API_KEY or GOOGLE_API_KEY for embeddings.")
                 self.embeddings = None
+        else:
+            logger.warning("No embedding provider configured. Set OPENAI_API_KEY or GOOGLE_API_KEY.")
+            self.embeddings = None
 
     @property
     def openai_client(self):
         if self._openai_client_instance is None:
             from openai import OpenAI as _OpenAI
-            
-            if self.provider == "poe":
-                api_key = os.getenv("POE_API_KEY")
+
+            if self.provider == "openrouter":
+                api_key = os.getenv("OPENROUTER_API_KEY")
                 if not api_key:
-                    raise ValueError("POE_API_KEY environment variable is required to use Poe models.")
+                    raise ValueError("OPENROUTER_API_KEY environment variable is required to use OpenRouter models.")
                 self._openai_client_instance = _OpenAI(
-                    base_url="https://api.poe.com/v1", 
-                    api_key=api_key
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=api_key,
                 )
             else:
                 api_key = os.getenv("OPENAI_API_KEY")
                 if not api_key:
                     raise ValueError("OPENAI_API_KEY environment variable is required to use OpenAI models.")
                 self._openai_client_instance = _OpenAI(api_key=api_key)
-                
+
         return self._openai_client_instance
+
+    def _resolve_model(self, model_id: str | None) -> str | None:
+        """Map shorthand model IDs to OpenRouter full paths when provider is openrouter."""
+        if not model_id or self.provider != "openrouter":
+            return model_id
+        if "/" in model_id:
+            return model_id  # Already a full OpenRouter path
+        return self._OR_ALIASES.get(model_id, model_id)
 
     def _get_fallback_clients(self, model_override: str | None = None) -> list:
         """Return ordered list of (openai_compatible_client, model_name) to try.
@@ -265,25 +290,26 @@ class AIService:
         from openai import OpenAI as _OAI
 
         attempts = []
-        primary_model = model_override or self.CHAT_MODEL
+        resolved_override = self._resolve_model(model_override)
+        primary_model = resolved_override or self.CHAT_MODEL
 
         # ── Primary provider ──────────────────────────────────────────────────
         attempts.append((self.openai_client, primary_model))
 
-        # ── Poe fallback (when primary is OpenAI) ─────────────────────────────
-        if self.provider != "poe":
-            poe_key = os.getenv("POE_API_KEY")
-            if poe_key:
-                attempts.append((
-                    _OAI(base_url="https://api.poe.com/v1", api_key=poe_key),
-                    "grok-3",
-                ))
-
-        # ── OpenAI fallback (when primary is Poe) ─────────────────────────────
-        if self.provider == "poe":
+        # ── OpenAI fallback (when primary is OpenRouter) ──────────────────────
+        if self.provider == "openrouter":
             oai_key = os.getenv("OPENAI_API_KEY")
             if oai_key:
                 attempts.append((_OAI(api_key=oai_key), "gpt-4o"))
+
+        # ── OpenRouter fallback (when primary is OpenAI/Gemini) ───────────────
+        if self.provider != "openrouter":
+            or_key = os.getenv("OPENROUTER_API_KEY")
+            if or_key:
+                attempts.append((
+                    _OAI(base_url="https://openrouter.ai/api/v1", api_key=or_key),
+                    "openai/gpt-4o",
+                ))
 
         return attempts
 
@@ -317,13 +343,13 @@ class AIService:
     ) -> Optional[str]:
         provider = self.provider
         if model_override:
-            # Check basic mappings
-            if model_override.startswith("gpt") or model_override.startswith("o"):
-                # If using Poe, just pass the model straight to Poe, don't force provider swap
-                if self.provider != "poe":
+            if "/" in model_override:
+                provider = "openrouter"
+            elif model_override.startswith("gpt") or model_override.startswith("o"):
+                if self.provider != "openrouter":
                     provider = "openai"
             elif model_override.startswith("gemini"):
-                if self.provider != "poe":
+                if self.provider != "openrouter":
                     provider = "gemini"
             else:
                 logger.warning(f"Unmapped model_override '{model_override}', falling back to {provider}")
@@ -519,6 +545,7 @@ class AIService:
         model_override: str = None,
         memory_context: str = "",
         preference_context: str = "",
+        has_documents: bool = False,
     ) -> Dict:
         """Agentic loop: send message, handle tool calls, return final answer + artifacts."""
         # Models known to not support function/tool calling — fall back to non-agentic flow.
@@ -538,28 +565,33 @@ class AIService:
 
         provider = self.provider
         if model_override:
-            if model_override.startswith("gpt") or model_override.startswith("o"):
-                if self.provider != "poe":
+            if "/" in model_override:
+                provider = "openrouter"
+            elif model_override.startswith("gpt") or model_override.startswith("o"):
+                if self.provider != "openrouter":
                     provider = "openai"
             elif model_override.startswith("gemini"):
-                if self.provider != "poe":
+                if self.provider != "openrouter":
                     provider = "gemini"
-            # poe models (grok-*) stay on poe provider — no change needed
 
         if provider == "gemini":
             return self._agentic_gemini(
                 question, chat_history, tool_executor, session_id, user_id,
                 file_type, model_override, memory_context, preference_context,
+                has_documents,
             )
         else:
+            # openai and openrouter both use the OpenAI-compatible agentic path
             return self._agentic_openai(
                 question, chat_history, tool_executor, session_id, user_id,
                 file_type, model_override, memory_context, preference_context,
+                has_documents,
             )
 
     def _agentic_openai(
         self, question, chat_history, tool_executor, session_id, user_id,
         file_type, model_override, memory_context, preference_context,
+        has_documents=False,
     ) -> Dict:
         from services.tools import TOOL_DEFINITIONS
         import json
@@ -569,15 +601,27 @@ class AIService:
             system_content += f"\n\nBased on past sessions: {memory_context}"
         if preference_context:
             system_content += f"\n\nUser preferences: {preference_context}"
-        system_content += (
-            "\n\nYou have tools available. CRITICAL RULES:\n"
-            "- ALWAYS call generate_flashcards (never answer in text) when the user asks for flashcards, flash cards, study cards, or spaced repetition cards.\n"
-            "- ALWAYS call generate_quiz (never answer in text) when the user asks for a quiz, test, or multiple-choice questions.\n"
-            "- ALWAYS call create_study_guide when the user asks for a study guide or outline.\n"
-            "- ALWAYS call generate_visualization when the user asks for a diagram, chart, or mind map.\n"
-            "- Use search_documents to find information from uploaded documents before answering factual questions.\n"
-            "- DO NOT produce flashcards or quiz questions as plain text. You MUST use the corresponding tool."
-        )
+        if has_documents:
+            system_content += (
+                "\n\nDOCUMENTS ARE UPLOADED in this session. Rules:\n"
+                "- ALWAYS call search_documents first before answering any question.\n"
+                "- Base your answer STRICTLY on the retrieved document content.\n"
+                "- If information is not found in the documents, say exactly: 'I cannot find that information in your document.' Do NOT guess or use general knowledge.\n"
+                "- ALWAYS call generate_flashcards when asked for flashcards.\n"
+                "- ALWAYS call generate_quiz when asked for a quiz.\n"
+                "- ALWAYS call create_study_guide when asked for a study guide.\n"
+                "- ALWAYS call generate_visualization when asked for a diagram or chart."
+            )
+        else:
+            system_content += (
+                "\n\nNo documents in this session. Rules:\n"
+                "- Answer general questions directly from your own knowledge.\n"
+                "- ALWAYS call generate_flashcards when asked for flashcards.\n"
+                "- ALWAYS call generate_quiz when asked for a quiz.\n"
+                "- ALWAYS call create_study_guide when asked for a study guide.\n"
+                "- ALWAYS call generate_visualization when asked for a diagram or chart.\n"
+                "- DO NOT produce flashcards or quiz questions as plain text."
+            )
         if model_override:
             system_content += "\n\nThink step by step. Be thorough, exhaustive, and analytical."
 
@@ -587,27 +631,31 @@ class AIService:
                 messages.append({"role": entry["role"], "content": entry["content"]})
         messages.append({"role": "user", "content": question})
 
+        # Resolve OpenRouter aliases (e.g. "gpt-4o" → "openai/gpt-4o")
+        resolved_override = self._resolve_model(model_override)
         # Use CHAT_MODEL (provider-aware) not OPENAI_CHAT_MODEL (hardcoded "gpt-4o")
-        model = model_override or self.CHAT_MODEL
+        model = resolved_override or self.CHAT_MODEL
         fallback_clients = self._get_fallback_clients(model_override)
         artifacts = []
         tool_calls_log = []
         max_rounds = 3
 
-        # Map keyword → exact tool name to force on the first round.
-        # Using {"type": "function", "function": {"name": "..."}} forces the model
-        # to call THAT specific tool — it cannot satisfy the requirement by calling
-        # a different one (e.g. search_documents) and then answering in text.
+        # Force a specific tool on round 0.
+        # Artifact tools take priority; if documents exist and no artifact was requested,
+        # force search_documents to guarantee grounded answers (zero-hallucination).
         _q_lower = question.lower()
         _forced_tool: str | None = None
         if any(kw in _q_lower for kw in ("flashcard", "flash card", "study card", "spaced repetition")):
             _forced_tool = "generate_flashcards"
         elif any(kw in _q_lower for kw in ("quiz", "test me", "multiple choice", "test my knowledge")):
             _forced_tool = "generate_quiz"
-        elif any(kw in _q_lower for kw in ("study guide", "outline", "summarize")):
+        elif any(kw in _q_lower for kw in ("study guide", "outline")):
             _forced_tool = "create_study_guide"
         elif any(kw in _q_lower for kw in ("diagram", "mind map", "visualization", "chart")):
             _forced_tool = "generate_visualization"
+        elif has_documents:
+            # Documents present but no artifact requested — force retrieval first
+            _forced_tool = "search_documents"
 
         for _round in range(max_rounds):
             # Round 0: force the specific tool if one was detected.
@@ -706,6 +754,7 @@ class AIService:
     def _agentic_gemini(
         self, question, chat_history, tool_executor, session_id, user_id,
         file_type, model_override, memory_context, preference_context,
+        has_documents=False,
     ) -> Dict:
         from services.tools import GEMINI_TOOL_DEFINITIONS
         import json
@@ -715,15 +764,21 @@ class AIService:
             system_instruction += f"\n\nBased on past sessions: {memory_context}"
         if preference_context:
             system_instruction += f"\n\nUser preferences: {preference_context}"
-        system_instruction += (
-            "\n\nYou have tools available. Use search_documents to find information from uploaded documents. "
-            "Use generate_quiz when the user asks for a quiz or multiple-choice questions. "
-            "Use generate_flashcards when the user asks for flashcards, flash cards, or spaced repetition study cards. "
-            "Use create_study_guide when the user asks for a study guide or outline. "
-            "Use generate_visualization when the user asks for a diagram or visualization. "
-            "If you cannot find information, state what's missing and suggest 2-3 alternative questions "
-            "in this format: ```suggestions\n[{\"text\": \"...\", \"reason\": \"...\"}]\n```"
-        )
+        if has_documents:
+            system_instruction += (
+                "\n\nDOCUMENTS ARE UPLOADED in this session. "
+                "ALWAYS call search_documents first before answering any question. "
+                "Base your answer STRICTLY on the retrieved document content. "
+                "If information is not found, say: 'I cannot find that information in your document.' "
+                "Use generate_quiz, generate_flashcards, create_study_guide, generate_visualization when asked."
+            )
+        else:
+            system_instruction += (
+                "\n\nNo documents in this session. Answer general questions from your own knowledge. "
+                "Use generate_quiz when asked for a quiz. Use generate_flashcards when asked for flashcards. "
+                "Use create_study_guide when asked for a study guide. "
+                "Use generate_visualization when asked for a diagram or visualization."
+            )
         if model_override:
             system_instruction += "\n\nThink step by step. Be thorough, exhaustive, and analytical."
 
@@ -845,12 +900,12 @@ class AIService:
                 response = model.generate_content(prompt)
                 title = response.text.replace('"', '').strip()
             else:
-                model_name = "grok-3-mini" if self.provider == "poe" else "gpt-4o-mini"
+                model_name = "openai/gpt-4o-mini" if self.provider == "openrouter" else "gpt-4o-mini"
                 response = self.openai_client.chat.completions.create(
                     model=model_name,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=10,
-                    temperature=0.3
+                    temperature=0.3,
                 )
                 title = response.choices[0].message.content.replace('"', '').strip()
             
@@ -862,58 +917,43 @@ class AIService:
             logger.error("generate_chat_title.error: %s", e)
             return "New Chat"
 
-    def explore_the_web(self, query: str, use_poe_search: bool = False, poe_api_key: str = None):
+    def explore_the_web(self, query: str):
         """
         Search-Augmented Generation streaming generator for the Explore Hub.
 
         Yields SSE-formatted strings:
           data: {"type": "chunk", "text": "..."}\\n\\n
           data: {"type": "sources", "sources": [{title, url, snippet, favicon}]}\\n\\n
-
-        If *use_poe_search* is True, delegates to Poe's native Web-Search bot
-        instead of running the DuckDuckGo + trafilatura pipeline.
         """
         import json as _json
         from services import search_service
 
         sources: list[dict] = []
 
-        # ── Step A: gather context ─────────────────────────────────────────────
-        if use_poe_search:
-            # Route through Poe's built-in web-search capability
+        # ── Step A: gather context via DuckDuckGo + trafilatura ───────────────
+        try:
+            results = search_service.web_search(query, max_results=8)
+            urls = [r["url"] for r in results if r.get("url")]
+            scraped = search_service.scrape_urls(urls, max_pages=5)
+            context_block, sources = search_service.build_context(results, scraped)
+        except Exception as exc:
+            logger.error("explore_the_web.search_failed: %s", exc)
             context_block = ""
-            system_prompt = (
-                "You are FileGeek Explore — an AI research assistant with live web search access. "
-                "Answer the user's query thoroughly. Use inline citations like [1], [2] where applicable."
-            )
-            bot_model = "Web-Search"  # Poe native
-        else:
-            # DuckDuckGo → trafilatura pipeline
-            try:
-                results = search_service.web_search(query, max_results=8)
-                urls = [r["url"] for r in results if r.get("url")]
-                scraped = search_service.scrape_urls(urls, max_pages=5)
-                context_block, sources = search_service.build_context(results, scraped)
-            except Exception as exc:
-                logger.error("explore_the_web.search_failed: %s", exc)
-                context_block = ""
-                sources = []
+            sources = []
 
-            system_prompt = (
-                "You are FileGeek Explore — an AI research assistant. "
-                "You have been given web search results below. Use them to answer the user's question. "
-                "You MUST cite sources using inline notation like [1], [2], [3] that correspond exactly "
-                "to the numbered sources in the context. Be thorough and well-structured using Markdown.\n\n"
-                "--- WEB CONTEXT ---\n"
-                f"{context_block}\n"
-                "--- END CONTEXT ---"
-            )
-            bot_model = "GPT-4o"
+        system_prompt = (
+            "You are FileGeek Explore — an AI research assistant. "
+            "You have been given web search results below. Use them to answer the user's question. "
+            "You MUST cite sources using inline notation like [1], [2], [3] that correspond exactly "
+            "to the numbered sources in the context. Be thorough and well-structured using Markdown.\n\n"
+            "--- WEB CONTEXT ---\n"
+            f"{context_block}\n"
+            "--- END CONTEXT ---"
+        )
 
-        # Yield sources metadata first so the frontend can render source chips immediately
+        # Yield sources metadata first so the frontend can render chips immediately
         if sources:
             for src in sources:
-                domain = ""
                 try:
                     from urllib.parse import urlparse
                     domain = urlparse(src["url"]).netloc.replace("www.", "")
@@ -922,73 +962,52 @@ class AIService:
                     src["favicon"] = ""
             yield f"data: {_json.dumps({'type': 'sources', 'sources': sources})}\n\n"
 
-        # ── Step B: stream Poe / OpenAI response ─────────────────────────────
+        # ── Step B: stream AI response ────────────────────────────────────────
         try:
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": query},
             ]
 
-            if AI_PROVIDER == "poe":
-                client = OpenAI(
-                    api_key=poe_api_key or os.getenv("POE_API_KEY"),
-                    base_url="https://api.poe.com/v1",
+            from openai import OpenAI as _OAI
+            if AI_PROVIDER == "openrouter":
+                client = _OAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=os.getenv("OPENROUTER_API_KEY"),
                 )
+                stream_model = "openai/gpt-4o"
                 stream = client.chat.completions.create(
-                    model=bot_model,
-                    messages=messages,
-                    stream=True,
-                    max_tokens=2048,
+                    model=stream_model, messages=messages, stream=True, max_tokens=2048,
                 )
+                for chunk in stream:
+                    text = getattr(chunk.choices[0].delta, "content", None) or ""
+                    if text:
+                        yield f"data: {_json.dumps({'type': 'chunk', 'text': text})}\n\n"
+
             elif AI_PROVIDER == "openai":
-                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                client = _OAI(api_key=os.getenv("OPENAI_API_KEY"))
                 stream = client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=messages,
-                    stream=True,
-                    max_tokens=2048,
+                    model="gpt-4o", messages=messages, stream=True, max_tokens=2048,
                 )
+                for chunk in stream:
+                    text = getattr(chunk.choices[0].delta, "content", None) or ""
+                    if text:
+                        yield f"data: {_json.dumps({'type': 'chunk', 'text': text})}\n\n"
+
             else:
-                # Gemini streaming synthesis
+                # Gemini streaming
                 genai_mod = self.gemini_client
                 gmodel = genai_mod.GenerativeModel(
-                    model_name=GEMINI_CHAT_MODEL,
+                    model_name=self.GEMINI_CHAT_MODEL,
                     system_instruction=system_prompt,
                 )
                 response = gmodel.generate_content(
-                    query,
-                    stream=True,
-                    generation_config={"max_output_tokens": 2048},
+                    query, stream=True, generation_config={"max_output_tokens": 2048},
                 )
                 for chunk in response:
                     text = getattr(chunk, "text", "") or ""
                     if text:
                         yield f"data: {_json.dumps({'type': 'chunk', 'text': text})}\n\n"
-
-            # Poe's Web-Search bot prepends "Searching… (Xs elapsed)" status lines
-            # before the real answer. Buffer until we detect real content.
-            import re as _re
-            _STATUS_RE = _re.compile(
-                r'^(?:(?:Searching\.{3}|Searching…)(?:\s*\(\d+s elapsed\))?\s*)*',
-                _re.MULTILINE,
-            )
-            seen_content = False
-            pre_buf = ""
-
-            for chunk in stream:
-                delta = chunk.choices[0].delta
-                text = getattr(delta, "content", None) or ""
-                if not text:
-                    continue
-                if seen_content:
-                    yield f"data: {_json.dumps({'type': 'chunk', 'text': text})}\n\n"
-                else:
-                    pre_buf += text
-                    stripped = _STATUS_RE.sub("", pre_buf).lstrip()
-                    if stripped:
-                        seen_content = True
-                        pre_buf = ""
-                        yield f"data: {_json.dumps({'type': 'chunk', 'text': stripped})}\n\n"
 
             yield "data: [DONE]\n\n"
 

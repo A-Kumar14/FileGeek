@@ -19,12 +19,31 @@ export default function TextViewer({ file, fileType }) {
     if (!file) return;
 
     if (fileType === 'txt') {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setContent(e.target.result);
-        setLoading(false);
-      };
-      reader.readAsText(file);
+      if (typeof file === 'string') {
+        // Handle remote URL (from chat history)
+        fetch(file)
+          .then((res) => {
+            if (!res.ok) throw new Error('Network response was not ok');
+            return res.text();
+          })
+          .then((text) => {
+            setContent(text);
+            setLoading(false);
+          })
+          .catch((err) => {
+            console.error('Failed to fetch text file:', err);
+            setContent('Error loading document content.');
+            setLoading(false);
+          });
+      } else {
+        // Handle local File object
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setContent(e.target.result);
+          setLoading(false);
+        };
+        reader.readAsText(file);
+      }
     } else {
       // For DOCX, we show a placeholder since browser can't natively render DOCX
       setContent('');

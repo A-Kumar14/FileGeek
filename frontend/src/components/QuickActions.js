@@ -1,19 +1,17 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { useChatContext } from '../contexts/ChatContext';
-import { usePersona } from '../contexts/PersonaContext';
 import { useFile } from '../contexts/FileContext';
 
 export default function QuickActions() {
-  const { sendMessage, loading } = useChatContext();
-  const { persona } = usePersona();
-  const { fileType } = useFile();
+  const { addMessage, isLoading } = useChatContext();
+  const { file } = useFile();
+  const fileType = file?.type || '';
 
   const actions = [
     'Make Quiz',
     'Summarize',
-    ...(fileType === 'image' ? ['Analyze Image'] : []),
-    `Explain like ${persona.label}`,
+    ...(fileType.startsWith('image/') ? ['Analyze Image'] : []),
   ];
 
   return (
@@ -21,18 +19,20 @@ export default function QuickActions() {
       {actions.map((label) => (
         <Box
           key={label}
-          onClick={() => !loading && sendMessage(label)}
+          onClick={() => !isLoading && addMessage(label)}
           sx={{
-            border: '1px solid #333333',
+            border: '1px solid var(--border)',
+            borderRadius: '20px',
             px: 1.5,
-            py: 0.5,
-            cursor: loading ? 'default' : 'pointer',
-            opacity: loading ? 0.5 : 1,
-            '&:hover': loading ? {} : { borderColor: '#E5E5E5', bgcolor: '#0D0D0D' },
+            py: 0.4,
+            cursor: isLoading ? 'default' : 'pointer',
+            opacity: isLoading ? 0.5 : 1,
+            transition: 'all 0.15s',
+            '&:hover': isLoading ? {} : { borderColor: 'var(--accent)', bgcolor: 'var(--accent-dim)' },
           }}
         >
-          <Typography sx={{ fontSize: '0.75rem', fontFamily: 'monospace', color: '#E5E5E5' }}>
-            {'> '}{label}
+          <Typography sx={{ fontSize: '0.75rem', fontFamily: 'var(--font-family)', fontWeight: 500, color: 'var(--fg-secondary)' }}>
+            {label}
           </Typography>
         </Box>
       ))}

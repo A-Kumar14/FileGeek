@@ -1,47 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Typography } from '@mui/material';
-import { BarChart2, Lightbulb, CheckCircle2, BookOpen, Search, HelpCircle, Sparkles } from 'lucide-react';
 
 const DEFAULT_CARDS = [
-  {
-    icon: <BarChart2 size={24} color="var(--accent)" />,
-    title: 'Synthesize Data',
-    subtitle: 'Turn key points into concise summaries',
-    text: 'Synthesize the key data and insights from this document',
-  },
-  {
-    icon: <Lightbulb size={24} color="var(--accent)" />,
-    title: 'Creative Brainstorm',
-    subtitle: 'Generate ideas and new perspectives',
-    text: 'Brainstorm creative ideas and insights from this document',
-  },
-  {
-    icon: <CheckCircle2 size={24} color="var(--accent)" />,
-    title: 'Check Facts',
-    subtitle: 'Verify and compare the key claims',
-    text: 'Check and summarize the key facts in this document',
-  },
+  { title: 'Synthesize', text: 'Synthesize the key data and insights from this document' },
+  { title: 'Brainstorm', text: 'Brainstorm creative ideas and insights from this document' },
+  { title: 'Check facts', text: 'Check and summarize the key facts in this document' },
 ];
 
 const EXTRA_CARDS = [
-  { icon: <BookOpen size={24} color="var(--accent)" />, title: 'Study Guide', subtitle: 'Create structured notes to learn faster', text: 'Create a study guide for this document' },
-  { icon: <Search size={24} color="var(--accent)" />, title: 'Key Definitions', subtitle: 'Find and explain important terms', text: 'Find and explain the key definitions' },
-  { icon: <HelpCircle size={24} color="var(--accent)" />, title: 'Raise Questions', subtitle: 'What questions does this content raise?', text: 'What questions does this document raise?' },
+  { title: 'Study guide', text: 'Create a study guide for this document' },
+  { title: 'Definitions', text: 'Find and explain the key definitions' },
+  { title: 'Raise questions', text: 'What questions does this document raise?' },
 ];
 
-export default function SuggestedPrompts({ onSelect, onPromptSelected, dynamicPrompts }) {
-  const [cards, setCards] = useState(DEFAULT_CARDS);
+const NO_FILE_CARDS = [
+  { title: 'Explain concept', text: 'Explain quantum computing in simple terms' },
+  { title: 'Brainstorm ideas', text: 'Brainstorm 5 creative ideas for a tech startup' },
+  { title: 'Plan strategy', text: 'Create a step-by-step strategy to learn a new language' },
+];
+
+const NO_FILE_EXTRA_CARDS = [
+  { title: 'Write draft', text: 'Draft a polite email declining an invitation' },
+  { title: 'Research topic', text: 'Give me a brief history of the Roman Empire' },
+  { title: 'Solve problem', text: 'Help me solve a logical reasoning puzzle' },
+];
+
+export default function SuggestedPrompts({ onSelect, onPromptSelected, dynamicPrompts, hasFile = true }) {
+  const [cards, setCards] = useState(hasFile ? DEFAULT_CARDS : NO_FILE_CARDS);
+
+  useEffect(() => {
+    setCards(hasFile ? DEFAULT_CARDS : NO_FILE_CARDS);
+  }, [hasFile]);
 
   useEffect(() => {
     if (dynamicPrompts && dynamicPrompts.length > 0) {
-      const mapped = dynamicPrompts.map((p, i) => {
+      const mapped = dynamicPrompts.map((p) => {
         const text = typeof p === 'string' ? p : p.text || p;
-        return {
-          icon: DEFAULT_CARDS[i]?.icon || <Sparkles size={24} color="var(--accent)" />,
-          title: text.slice(0, 28),
-          subtitle: text,
-          text,
-        };
+        return { title: text.slice(0, 32), text };
       });
       setCards(mapped.slice(0, 3));
     }
@@ -54,7 +49,8 @@ export default function SuggestedPrompts({ onSelect, onPromptSelected, dynamicPr
     setCards((prev) => {
       const remaining = prev.filter((c) => c.text !== card.text);
       const showing = new Set(remaining.map((c) => c.text));
-      const replacement = EXTRA_CARDS.find((c) => !showing.has(c.text));
+      const pool = hasFile ? EXTRA_CARDS : NO_FILE_EXTRA_CARDS;
+      const replacement = pool.find((c) => !showing.has(c.text));
       return replacement ? [...remaining, replacement] : remaining;
     });
   };
@@ -93,22 +89,13 @@ export default function SuggestedPrompts({ onSelect, onPromptSelected, dynamicPr
             },
           }}
         >
-          <Box sx={{ mb: 0.5 }}>{card.icon}</Box>
           <Typography sx={{
-            fontSize: '0.85rem', fontWeight: 600,
+            fontSize: '0.84rem', fontWeight: 500,
             color: 'var(--fg-primary)',
             fontFamily: 'var(--font-family)',
             lineHeight: 1.3,
           }}>
             {card.title}
-          </Typography>
-          <Typography sx={{
-            fontSize: '0.75rem',
-            color: 'var(--fg-dim)',
-            fontFamily: 'var(--font-family)',
-            lineHeight: 1.4,
-          }}>
-            {card.subtitle}
           </Typography>
         </Box>
       ))}

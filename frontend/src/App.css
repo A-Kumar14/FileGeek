@@ -17,11 +17,11 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* Focus-visible for accessibility - High Contrast */
+/* Focus-visible for accessibility */
 :focus-visible {
-  outline: 2px solid #00FF00;
+  outline: 2px solid var(--accent, #F97316);
   outline-offset: 2px;
-  border-radius: 0px;
+  border-radius: 4px;
 }
 
 /* Skip-to-content link for keyboard/screen reader users */
@@ -29,16 +29,16 @@ body {
   position: absolute;
   top: -40px;
   left: 0;
-  background: #00FF00;
-  color: #000;
+  background: var(--accent, #F97316);
+  color: #FFF;
   padding: 8px 16px;
   z-index: 10000;
   font-size: 0.85rem;
   font-weight: 600;
-  border-radius: 0;
+  border-radius: 8px;
   transition: top 0.2s ease;
   text-decoration: none;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-family, 'Inter', sans-serif);
 }
 
 .skip-to-content:focus {
@@ -84,32 +84,30 @@ body {
   }
 }
 
-/* Custom Scrollbar Styles - Cyber Terminal Theme */
+/* Custom Scrollbar Styles */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: #000000;
-  border-left: 1px solid #1a1a1a;
+  background: transparent;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #333333;
-  border-radius: 0;
+  background: var(--border, rgba(249,115,22,0.2));
+  border-radius: 3px;
   transition: background 0.2s ease;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #00FF00;
-  box-shadow: 0 0 4px rgba(0, 255, 0, 0.3);
+  background: var(--accent, #F97316);
 }
 
 /* Firefox scrollbar */
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: #333333 #000000;
+  scrollbar-color: var(--border, rgba(249,115,22,0.2)) transparent;
 }
 
 /* Glassmorphism effect for active items */

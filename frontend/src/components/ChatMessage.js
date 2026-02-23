@@ -27,18 +27,19 @@ function CopyCodeButton({ code }) {
         onClick={handleCopy}
         sx={{
           position: 'absolute',
-          top: 4,
-          right: 4,
+          top: 6,
+          right: 8,
           cursor: 'pointer',
-          color: copied ? '#00FF00' : '#888',
-          fontFamily: 'monospace',
+          color: copied ? 'var(--success)' : 'var(--fg-dim)',
+          fontFamily: 'var(--font-family)',
           fontSize: '0.65rem',
-          fontWeight: 700,
+          fontWeight: 600,
           zIndex: 1,
-          '&:hover': { color: '#E5E5E5' },
+          '&:hover': { color: 'var(--accent)' },
+          transition: 'color 0.15s',
         }}
       >
-        {copied ? '[OK]' : '[CPY]'}
+        {copied ? 'Copied' : 'Copy'}
       </Box>
     </Tooltip>
   );
@@ -59,6 +60,28 @@ function extractTextFromChildren(children) {
   if (Array.isArray(children)) return children.map(extractTextFromChildren).join('');
   if (children?.props?.children) return extractTextFromChildren(children.props.children);
   return '';
+}
+
+function CustomLink({ href, children }) {
+  const childText = extractTextFromChildren(children);
+  const isCitation = /^\[?\d+\]?$/.test(childText);
+  if (isCitation) {
+    const num = childText.replace(/[\[\]]/g, '');
+    return (
+      <Tooltip title={href} placement="top">
+        <a href={href} target="_blank" rel="noopener noreferrer" style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          minWidth: '16px', height: '16px',
+          margin: '0 2px', background: 'var(--accent-dim)', color: 'var(--accent)',
+          borderRadius: '4px', textDecoration: 'none', border: '1px solid var(--border)',
+          fontSize: '0.6rem', fontWeight: 800, fontFamily: 'var(--font-family)', verticalAlign: 'super'
+        }}>
+          {num}
+        </a>
+      </Tooltip>
+    );
+  }
+  return <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>{children}</a>;
 }
 
 const PURIFY_CONFIG = {
@@ -100,148 +123,192 @@ const ChatMessage = React.memo(
     const [needsCollapse, setNeedsCollapse] = useState(false);
     const contentRef = useRef(null);
 
-    // Memoize sanitized content to avoid expensive DOMPurify calls on every render
-    const sanitizedContent = useMemo(() => sanitize(message.content), [message.content]);
+    // Memoize sanitized content and intercept citations
+    const sanitizedContent = useMemo(() => {
+      let text = message.content || '';
 
-  const measuredRef = useCallback((node) => {
-    if (node && !isUser) {
-      contentRef.current = node;
-      requestAnimationFrame(() => {
-        if (node.scrollHeight > COLLAPSE_HEIGHT) {
-          setNeedsCollapse(true);
-          setExpanded(false);
-        }
-      });
-    }
-  }, [isUser]);
+      // Map Perplexity-style citations [1] to markdown links using message.sources
+      if (message.sources && message.sources.length > 0) {
+        text = text.replace(/\[(\d+)\]/g, (match, d1) => {
+          const idx = parseInt(d1, 10) - 1;
+          if (idx >= 0 && idx < message.sources.length) {
+            const src = message.sources[idx];
+            const url = typeof src === 'string' ? src : src.url || src.metadata?.source;
+            if (url) return `[${match}](${url})`;
+          }
+          return match;
+        });
+      }
 
-  return (
-    <Box
-      sx={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', mb: 1 }}
-      role="listitem"
-      aria-label={isUser ? 'Your message' : 'Assistant response'}
-    >
+      return sanitize(text);
+    }, [message.content, message.sources]);
+
+    const measuredRef = useCallback((node) => {
+      if (node && !isUser) {
+        contentRef.current = node;
+        requestAnimationFrame(() => {
+          if (node.scrollHeight > COLLAPSE_HEIGHT) {
+            setNeedsCollapse(true);
+            setExpanded(false);
+          }
+        });
+      }
+    }, [isUser]);
+
+    return (
       <Box
-        sx={{
-          maxWidth: '80%',
-          px: 1.5,
-          py: 1,
-          border: '1px solid #333333',
-          bgcolor: isUser ? '#1A1A1A' : '#0D0D0D',
-          fontFamily: 'monospace',
-          fontSize: '0.85rem',
-          color: '#E5E5E5',
-          '& p': { m: 0, mb: 0.5 },
-          '& pre': {
-            p: 1,
-            overflow: 'auto',
-            bgcolor: '#000000',
-            border: '1px solid #333',
-            fontSize: '0.8rem',
-          },
-          '& code': { fontFamily: 'monospace', color: '#00FF00' },
-          '& table': {
-            borderCollapse: 'collapse',
-            width: '100%',
-            '& th, & td': { border: '1px solid #333', px: 1, py: 0.5, fontSize: '0.8rem' },
-          },
-          '& a': { color: '#00FF00' },
-          '& .math-display': { overflowX: 'auto' },
-        }}
+        sx={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', mb: 1 }}
+        role="listitem"
+        aria-label={isUser ? 'Your message' : 'Assistant response'}
       >
-        {/* Role label */}
-        <Typography sx={{ fontFamily: 'monospace', fontSize: '0.6rem', color: '#888', mb: 0.5, fontWeight: 700 }}>
-          {isUser ? '[ USER ]' : '[ SYS ]'}
-        </Typography>
-
-        {isUser ? (
-          <p style={{ margin: 0 }}>{message.content}</p>
-        ) : message.isError ? (
-          <Box>
-            <Typography sx={{ fontFamily: 'monospace', fontSize: '0.85rem', color: '#FF0000' }}>
-              ERROR: {message.content}
+        <Box
+          sx={{
+            maxWidth: '80%',
+            px: 1.75,
+            py: 1.25,
+            borderRadius: isUser ? '14px 14px 4px 14px' : '4px 14px 14px 14px',
+            bgcolor: isUser ? 'var(--accent)' : 'var(--bg-secondary)',
+            border: isUser ? 'none' : '1px solid var(--border)',
+            fontFamily: 'var(--font-family)',
+            fontSize: '0.9rem',
+            color: isUser ? '#FFFFFF' : 'var(--fg-primary)',
+            '& p': { m: 0, mb: 0.5 },
+            '& pre': {
+              p: 1.25,
+              overflow: 'auto',
+              bgcolor: 'var(--bg-tertiary)',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              fontSize: '0.82rem',
+              position: 'relative',
+            },
+            '& code': {
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--accent)',
+              fontSize: '0.82rem',
+              bgcolor: 'var(--accent-dim)',
+              px: 0.5,
+              py: 0.1,
+              borderRadius: '4px',
+            },
+            '& table': {
+              borderCollapse: 'collapse',
+              width: '100%',
+              '& th, & td': { border: '1px solid var(--border)', px: 1, py: 0.5, fontSize: '0.85rem' },
+              '& th': { bgcolor: 'var(--bg-tertiary)', fontWeight: 600 },
+            },
+            '& a': { color: 'var(--accent)' },
+            '& h1, & h2, & h3': { mt: 1.5, mb: 0.5, fontWeight: 600, color: 'var(--fg-primary)' },
+            '& ul, & ol': { pl: 2.5, mt: 0.5, mb: 0.5 },
+            '& li': { mb: 0.25 },
+            '& blockquote': {
+              borderLeft: '3px solid var(--accent)',
+              ml: 0, pl: 1.5,
+              color: 'var(--fg-secondary)',
+              fontStyle: 'italic',
+            },
+            '& hr': { border: 'none', borderTop: '1px solid var(--border)', my: 1.5 },
+          }}
+        >
+          {isUser ? (
+            <Typography sx={{ fontFamily: 'var(--font-family)', whiteSpace: 'pre-wrap', lineHeight: 1.6, color: '#FFFFFF', fontSize: '0.9rem' }}>
+              {message.content}
             </Typography>
-            {message.failedQuestion && (
-              <Tooltip title="Retry">
-                <Box
-                  onClick={() => sendMessage(message.failedQuestion)}
-                  sx={{ cursor: 'pointer', color: '#888', fontFamily: 'monospace', fontSize: '0.7rem', fontWeight: 700, mt: 0.5, '&:hover': { color: '#00FF00' } }}
-                >
-                  [RETRY]
-                </Box>
-              </Tooltip>
-            )}
-          </Box>
-        ) : (
-          <>
-            <Collapse in={expanded} collapsedSize={needsCollapse ? COLLAPSE_HEIGHT : undefined}>
-              <Box ref={measuredRef}>
-                <Suspense
-                  fallback={
-                    <Box sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#888' }}>
-                      [ LOADING... ]
-                    </Box>
-                  }
-                >
-                  <MarkdownRenderer
-                    content={sanitizedContent}
-                    components={{ pre: CodeBlockWrapper }}
-                  />
-                </Suspense>
-              </Box>
-            </Collapse>
-            {needsCollapse && (
-              <Box
-                onClick={() => setExpanded((prev) => !prev)}
-                sx={{
-                  cursor: 'pointer',
-                  textAlign: 'center',
-                  py: 0.5,
-                  color: '#00FF00',
-                  fontFamily: 'monospace',
-                  fontSize: '0.7rem',
-                  fontWeight: 700,
-                  '&:hover': { color: '#E5E5E5' },
-                }}
-              >
-                {expanded ? '[ LESS ]' : '[ MORE ]'}
-              </Box>
-            )}
-            {message.sources?.length > 0 && (
-              <Box sx={{ mt: 1, pt: 0.5, borderTop: '1px solid #222' }}>
-                {message.sources.map((src, i) => (
-                  <SmartCitation key={i} source={src} />
-                ))}
-              </Box>
-            )}
-            {message.suggestions?.length > 0 && (
-              <SuggestionChips suggestions={message.suggestions} />
-            )}
-            {/* Actions */}
-            <Box
-              sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, pt: 0.5, borderTop: '1px solid #222' }}
-              role="toolbar"
-              aria-label="Message actions"
-            >
-              <FeedbackButtons messageId={message.message_id} />
-              <AudioPlayer text={message.content} />
-              <ExportMenu content={message.content} title="FileGeek Response" />
-              {message.timestamp && (
-                <Typography sx={{ ml: 'auto', fontFamily: 'monospace', fontSize: '0.6rem', color: '#555' }}>
-                  {relativeTime(message.timestamp)}
-                </Typography>
+          ) : message.isError ? (
+            <Box>
+              <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.9rem', color: 'var(--error)' }}>
+                {message.content}
+              </Typography>
+              {message.failedQuestion && (
+                <Tooltip title="Retry">
+                  <Box
+                    onClick={() => sendMessage(message.failedQuestion)}
+                    sx={{
+                      cursor: 'pointer',
+                      color: 'var(--fg-dim)',
+                      fontFamily: 'var(--font-family)',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      mt: 0.75,
+                      '&:hover': { color: 'var(--accent)' },
+                    }}
+                  >
+                    Retry
+                  </Box>
+                </Tooltip>
               )}
             </Box>
-          </>
-        )}
-        {isUser && message.timestamp && (
-          <Typography sx={{ fontFamily: 'monospace', fontSize: '0.6rem', color: '#555', mt: 0.25, textAlign: 'right' }}>
-            {relativeTime(message.timestamp)}
-          </Typography>
-        )}
+          ) : (
+            <>
+              <Collapse in={expanded} collapsedSize={needsCollapse ? COLLAPSE_HEIGHT : undefined}>
+                <Box ref={measuredRef}>
+                  <Suspense
+                    fallback={
+                      <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.9rem', color: 'var(--fg-dim)' }}>
+                        Loading...
+                      </Typography>
+                    }
+                  >
+                    <MarkdownRenderer
+                      content={sanitizedContent}
+                      components={{ pre: CodeBlockWrapper, a: CustomLink }}
+                    />
+                  </Suspense>
+                </Box>
+              </Collapse>
+              {needsCollapse && (
+                <Box
+                  onClick={() => setExpanded((prev) => !prev)}
+                  sx={{
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    py: 0.5,
+                    color: 'var(--accent)',
+                    fontFamily: 'var(--font-family)',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    '&:hover': { opacity: 0.75 },
+                    transition: 'opacity 0.15s',
+                  }}
+                >
+                  {expanded ? 'Show less' : 'Show more'}
+                </Box>
+              )}
+              {message.sources?.length > 0 && (
+                <Box sx={{ mt: 1, pt: 0.75, borderTop: '1px solid var(--border)' }}>
+                  {message.sources.map((src, i) => (
+                    <SmartCitation key={i} source={src} />
+                  ))}
+                </Box>
+              )}
+              {message.suggestions?.length > 0 && (
+                <SuggestionChips suggestions={message.suggestions} />
+              )}
+              {/* Actions */}
+              <Box
+                sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75, pt: 0.5, borderTop: '1px solid var(--border)' }}
+                role="toolbar"
+                aria-label="Message actions"
+              >
+                <FeedbackButtons messageId={message.message_id} />
+                <AudioPlayer text={message.content} />
+                <ExportMenu content={message.content} title="FileGeek Response" />
+                {message.timestamp && (
+                  <Typography sx={{ ml: 'auto', fontFamily: 'var(--font-family)', fontSize: '0.65rem', color: 'var(--fg-dim)' }}>
+                    {relativeTime(message.timestamp)}
+                  </Typography>
+                )}
+              </Box>
+            </>
+          )}
+          {isUser && message.timestamp && (
+            <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.65rem', color: 'rgba(255,255,255,0.65)', mt: 0.25, textAlign: 'right' }}>
+              {relativeTime(message.timestamp)}
+            </Typography>
+          )}
+        </Box>
       </Box>
-    </Box>
-  );
+    );
   },
   (prevProps, nextProps) => {
     // Only re-render if message content, role, sources, timestamp, or error state changes

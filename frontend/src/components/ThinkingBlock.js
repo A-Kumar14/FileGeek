@@ -16,9 +16,9 @@ export default function ThinkingBlock({ steps, isGenerating }) {
                 alignSelf: 'flex-start',
                 maxWidth: '85%',
                 mb: 1,
-                borderLeft: '2px solid var(--accent, #00FF00)',
-                bgcolor: 'var(--accent-dim, rgba(0,255,0,0.1))',
-                borderRadius: '0 4px 4px 0',
+                borderLeft: '2px solid var(--accent)',
+                bgcolor: 'var(--accent-dim)',
+                borderRadius: '0 8px 8px 0',
                 overflow: 'hidden',
             }}
         >
@@ -31,40 +31,39 @@ export default function ThinkingBlock({ steps, isGenerating }) {
                     px: 1.5,
                     py: 0.75,
                     cursor: 'pointer',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' },
+                    '&:hover': { bgcolor: 'rgba(249,115,22,0.08)' },
                 }}
             >
                 {isGenerating ? (
-                    <CircularProgress size={12} sx={{ color: 'var(--accent, #00FF00)' }} />
+                    <CircularProgress size={12} sx={{ color: 'var(--accent)' }} />
                 ) : (
-                    <CheckCircleOutlineIcon sx={{ fontSize: 14, color: 'var(--accent, #00FF00)' }} />
+                    <CheckCircleOutlineIcon sx={{ fontSize: 14, color: 'var(--accent)' }} />
                 )}
                 <Typography
                     sx={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: '0.7rem',
-                        color: 'var(--accent, #00FF00)',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
+                        fontFamily: 'var(--font-family)',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        color: 'var(--accent)',
                         flex: 1,
                     }}
                 >
-                    {isGenerating ? `[ REASONING... ] (${steps.length} steps)` : `[ REASONING LOG ] (${steps.length} steps)`}
+                    {isGenerating ? `Reasoning... (${steps.length} steps)` : `Reasoning complete (${steps.length} steps)`}
                 </Typography>
-                <IconButton size="small" disableRipple sx={{ p: 0, color: 'var(--accent, #00FF00)' }}>
+                <IconButton size="small" disableRipple sx={{ p: 0, color: 'var(--accent)' }}>
                     {expanded ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}
                 </IconButton>
             </Box>
 
             <Collapse in={expanded}>
-                <Box sx={{ p: 1.5, pt: 0 }}>
+                <Box sx={{ px: 1.5, pb: 1 }}>
                     {steps.map((step, idx) => (
                         <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 0.5, alignItems: 'flex-start' }}>
-                            <Typography sx={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--fg-dim)', mt: 0.25 }}>
+                            <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.62rem', color: 'var(--fg-dim)', mt: 0.25, minWidth: 20 }}>
                                 {String(idx + 1).padStart(2, '0')}
                             </Typography>
-                            <Typography sx={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--fg-secondary)' }}>
-                                {step.type === 'tool_call' ? `[EXECUTING_TOOL] ${step.name}` : step.content}
+                            <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.72rem', color: 'var(--fg-secondary)' }}>
+                                {step.type === 'tool_call' ? `Running: ${step.name}` : step.content}
                             </Typography>
                         </Box>
                     ))}

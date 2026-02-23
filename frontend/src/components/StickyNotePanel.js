@@ -25,9 +25,7 @@ export default function StickyNotePanel() {
         y: Math.max(0, Math.min(e.clientY - dragOffset.current.y, window.innerHeight - 100)),
       });
     };
-    const handleMouseUp = () => {
-      dragging.current = false;
-    };
+    const handleMouseUp = () => { dragging.current = false; };
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     return () => {
@@ -35,10 +33,6 @@ export default function StickyNotePanel() {
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, []);
-
-  const handleAddNote = () => {
-    addNote('');
-  };
 
   if (!notePanelOpen) return null;
 
@@ -49,13 +43,15 @@ export default function StickyNotePanel() {
         left: pos.x,
         top: pos.y,
         width: 320,
-        maxHeight: 400,
+        maxHeight: 420,
         zIndex: 1300,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        border: '1px solid #333333',
-        bgcolor: '#0D0D0D',
+        borderRadius: '16px',
+        border: '1px solid var(--border)',
+        bgcolor: 'var(--bg-secondary)',
+        boxShadow: 'var(--shadow)',
       }}
     >
       {/* Header */}
@@ -65,37 +61,58 @@ export default function StickyNotePanel() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          px: 1.5,
-          py: 0.75,
-          borderBottom: '1px solid #333333',
-          bgcolor: '#000000',
+          px: 1.75,
+          py: 1,
+          borderBottom: '1px solid var(--border)',
+          bgcolor: 'var(--bg-primary)',
           cursor: 'grab',
           userSelect: 'none',
+          borderRadius: '16px 16px 0 0',
           '&:active': { cursor: 'grabbing' },
         }}
       >
-        <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.75rem', color: '#E5E5E5' }} noWrap>
-          NOTES — {file?.name || 'UNTITLED'}
+        <Typography sx={{ fontFamily: 'var(--font-family)', fontWeight: 600, fontSize: '0.82rem', color: 'var(--fg-primary)' }} noWrap>
+          Notes — {file?.name || 'Untitled'}
         </Typography>
         <Tooltip title="Close">
           <Box
             onClick={() => setNotePanelOpen(false)}
-            sx={{ cursor: 'pointer', color: '#888', fontFamily: 'monospace', fontSize: '0.7rem', fontWeight: 700, '&:hover': { color: '#E5E5E5' } }}
+            sx={{
+              cursor: 'pointer',
+              color: 'var(--fg-dim)',
+              fontFamily: 'var(--font-family)',
+              fontSize: '1rem',
+              lineHeight: 1,
+              fontWeight: 400,
+              width: 22, height: 22,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: '50%',
+              transition: 'all 0.15s',
+              '&:hover': { color: 'var(--error)', bgcolor: 'rgba(220,38,38,0.08)' },
+            }}
           >
-            [x]
+            ×
           </Box>
         </Tooltip>
       </Box>
 
       {/* Notes list */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+      <Box sx={{ flex: 1, overflow: 'auto', p: 1.25, display: 'flex', flexDirection: 'column', gap: 1 }}>
         {notes.length === 0 && (
-          <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#888', textAlign: 'center', py: 3 }}>
-            [NO_NOTES]
+          <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.8rem', color: 'var(--fg-dim)', textAlign: 'center', py: 3 }}>
+            No notes yet
           </Typography>
         )}
         {notes.map((note) => (
-          <Box key={note.id} sx={{ border: '1px solid #333333', p: 1 }}>
+          <Box
+            key={note.id}
+            sx={{
+              border: '1px solid var(--border)',
+              borderRadius: '10px',
+              p: 1.25,
+              bgcolor: 'var(--bg-primary)',
+            }}
+          >
             <TextField
               multiline
               minRows={2}
@@ -103,22 +120,40 @@ export default function StickyNotePanel() {
               fullWidth
               size="small"
               defaultValue={note.content}
-              placeholder="TYPE_NOTE..."
+              placeholder="Write a note..."
               onBlur={(e) => updateNote(note.id, e.target.value)}
+              variant="standard"
               sx={{
-                '& .MuiInputBase-root': { fontSize: '0.8rem', fontFamily: 'monospace', bgcolor: '#000' },
+                '& .MuiInputBase-root': {
+                  fontSize: '0.82rem',
+                  fontFamily: 'var(--font-family)',
+                  color: 'var(--fg-primary)',
+                  bgcolor: 'transparent',
+                },
+                '& .MuiInput-underline:before': { borderBottom: 'none' },
+                '& .MuiInput-underline:hover:before': { borderBottom: 'none' },
+                '& .MuiInput-underline:after': { borderBottom: '1px solid var(--accent)' },
+                '& textarea::placeholder': { color: 'var(--fg-dim)', opacity: 1 },
               }}
             />
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}>
-              <Typography sx={{ fontSize: '0.6rem', fontFamily: 'monospace', color: '#555' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.75 }}>
+              <Typography sx={{ fontSize: '0.62rem', fontFamily: 'var(--font-family)', color: 'var(--fg-dim)' }}>
                 {new Date(note.createdAt).toLocaleString()}
               </Typography>
-              <Tooltip title="Delete">
+              <Tooltip title="Delete note">
                 <Box
                   onClick={() => removeNote(note.id)}
-                  sx={{ cursor: 'pointer', color: '#888', fontFamily: 'monospace', fontSize: '0.65rem', fontWeight: 700, '&:hover': { color: '#FF0000' } }}
+                  sx={{
+                    cursor: 'pointer',
+                    color: 'var(--fg-dim)',
+                    fontFamily: 'var(--font-family)',
+                    fontSize: '0.72rem',
+                    fontWeight: 600,
+                    transition: 'color 0.15s',
+                    '&:hover': { color: 'var(--error)' },
+                  }}
                 >
-                  [DEL]
+                  Delete
                 </Box>
               </Tooltip>
             </Box>
@@ -127,22 +162,24 @@ export default function StickyNotePanel() {
       </Box>
 
       {/* Add Note */}
-      <Box sx={{ p: 1, borderTop: '1px solid #333333' }}>
+      <Box sx={{ p: 1.25, borderTop: '1px solid var(--border)' }}>
         <Box
-          onClick={handleAddNote}
+          onClick={() => addNote('')}
           sx={{
             cursor: 'pointer',
             textAlign: 'center',
-            fontFamily: 'monospace',
-            fontSize: '0.75rem',
-            fontWeight: 700,
-            color: '#888',
-            py: 0.5,
-            border: '1px solid #333',
-            '&:hover': { borderColor: '#00FF00', color: '#00FF00' },
+            fontFamily: 'var(--font-family)',
+            fontSize: '0.82rem',
+            fontWeight: 600,
+            color: 'var(--accent)',
+            py: 0.75,
+            borderRadius: '10px',
+            border: '1px solid var(--border)',
+            transition: 'all 0.15s',
+            '&:hover': { bgcolor: 'var(--accent-dim)', borderColor: 'var(--accent)' },
           }}
         >
-          [ + ADD NOTE ]
+          + Add note
         </Box>
       </Box>
     </Box>,

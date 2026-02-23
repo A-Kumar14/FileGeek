@@ -11,13 +11,22 @@ import 'katex/dist/katex.min.css';
  * Code-split to reduce main bundle size by ~150KB.
  */
 function MarkdownRenderer({ content, components }) {
+  // Replace Gemini's default LaTeX wrappers with standard Markdown math syntax
+  const processedContent = typeof content === 'string'
+    ? content
+      .replace(/\\\(/g, '$$')
+      .replace(/\\\)/g, '$$')
+      .replace(/\\\[/g, '$$$$')
+      .replace(/\\\]/g, '$$$$')
+    : content;
+
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[rehypeHighlight, rehypeKatex]}
       components={components}
     >
-      {content}
+      {processedContent}
     </ReactMarkdown>
   );
 }

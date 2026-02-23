@@ -9,8 +9,8 @@ export default function SuggestionChips({ onSelect }) {
 
   return (
     <Box sx={{ mb: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-      <Typography variant="caption" sx={{ color: '#888', fontFamily: 'monospace', fontSize: '0.7rem' }}>
-        SUGGESTED:
+      <Typography variant="caption" sx={{ color: 'var(--fg-dim)', fontFamily: 'var(--font-family)', fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        Suggestions
       </Typography>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
         {suggestions.map((s, i) => {
@@ -23,14 +23,16 @@ export default function SuggestionChips({ onSelect }) {
                 else sendMessage(text);
               }}
               sx={{
-                border: '1px solid #333333',
+                border: '1px solid var(--border)',
+                borderRadius: '20px',
                 px: 1.5,
-                py: 0.25,
+                py: 0.3,
                 cursor: 'pointer',
-                '&:hover': { borderColor: '#E5E5E5', bgcolor: '#0D0D0D' },
+                transition: 'all 0.15s',
+                '&:hover': { borderColor: 'var(--accent)', bgcolor: 'var(--accent-dim)' },
               }}
             >
-              <Typography sx={{ fontSize: '0.75rem', fontFamily: 'monospace', color: '#E5E5E5' }}>
+              <Typography sx={{ fontSize: '0.75rem', fontFamily: 'var(--font-family)', color: 'var(--fg-secondary)' }}>
                 {text}
               </Typography>
             </Box>

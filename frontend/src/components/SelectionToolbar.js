@@ -42,7 +42,6 @@ export default function SelectionToolbar({ containerRef, onHighlight, onComment,
         if (!commentMode) setVisible(false);
         return;
       }
-      // Only show toolbar when selection is inside the PDF container
       if (containerRef?.current) {
         const range = sel.getRangeAt(0);
         if (!containerRef.current.contains(range.commonAncestorContainer)) return;
@@ -58,7 +57,6 @@ export default function SelectionToolbar({ containerRef, onHighlight, onComment,
   }, []);
 
   useEffect(() => {
-    // Listen on document so toolbar appears even when mouse is released outside the PDF container
     document.addEventListener('mouseup', handleMouseUp);
 
     const handleKeyDown = (e) => {
@@ -95,10 +93,6 @@ export default function SelectionToolbar({ containerRef, onHighlight, onComment,
     window.getSelection()?.removeAllRanges();
   };
 
-  const handleCommentToggle = () => {
-    setCommentMode(true);
-  };
-
   const handleCommentSubmit = () => {
     if (commentText.trim() && onComment) {
       onComment(commentText.trim());
@@ -109,19 +103,26 @@ export default function SelectionToolbar({ containerRef, onHighlight, onComment,
 
   if (!visible) return null;
 
-  const toolBtn = (label, onClick, color = '#888') => (
+  /* Shared pill button style */
+  const pillBtn = (label, onClick, accent = false) => (
     <Tooltip title={label}>
       <Box
         onClick={onClick}
         sx={{
           cursor: 'pointer',
-          color,
-          fontFamily: 'monospace',
-          fontSize: '0.7rem',
-          fontWeight: 700,
-          px: 0.75,
-          py: 0.25,
-          '&:hover': { color: '#E5E5E5' },
+          fontFamily: 'var(--font-family)',
+          fontSize: '0.72rem',
+          fontWeight: 600,
+          color: accent ? 'var(--accent)' : 'var(--fg-secondary)',
+          px: 1,
+          py: 0.3,
+          borderRadius: '6px',
+          whiteSpace: 'nowrap',
+          transition: 'all 0.15s',
+          '&:hover': {
+            color: 'var(--accent)',
+            bgcolor: 'var(--accent-dim)',
+          },
         }}
       >
         {label}
@@ -129,11 +130,12 @@ export default function SelectionToolbar({ containerRef, onHighlight, onComment,
     </Tooltip>
   );
 
+  /* Thin separator */
+  const sep = <Box sx={{ width: '1px', height: 14, bgcolor: 'var(--border)', mx: 0.25, flexShrink: 0 }} />;
+
   return createPortal(
     <Box
       ref={toolbarRef}
-      // Prevent mousedown from clearing the text selection — this is the key fix
-      // that allows onClick handlers to still read window.getSelection()
       onMouseDown={(e) => e.preventDefault()}
       sx={{
         position: 'fixed',
@@ -144,18 +146,25 @@ export default function SelectionToolbar({ containerRef, onHighlight, onComment,
         display: 'flex',
         alignItems: 'center',
         gap: 0.25,
-        px: 0.5,
-        py: 0.25,
-        bgcolor: '#0D0D0D',
-        border: '1px solid #333333',
+        px: 0.75,
+        py: 0.4,
+        borderRadius: '20px',
+        bgcolor: 'rgba(255,255,255,0.96)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        border: '1px solid var(--border)',
+        boxShadow: 'var(--shadow)',
       }}
     >
       {!commentMode ? (
         <>
-          {toolBtn('[HL]', handleHighlight, '#f59e0b')}
-          {toolBtn('[NOTE]', handleNote)}
-          {toolBtn('[CMT]', handleCommentToggle)}
-          {toolBtn('[AI?]', () => {
+          {pillBtn('Highlight', handleHighlight, true)}
+          {sep}
+          {pillBtn('Note', handleNote)}
+          {sep}
+          {pillBtn('Comment', () => setCommentMode(true))}
+          {sep}
+          {pillBtn('Ask AI', () => {
             const sel = window.getSelection();
             const text = sel ? sel.toString().trim() : '';
             if (text) {
@@ -167,13 +176,13 @@ export default function SelectionToolbar({ containerRef, onHighlight, onComment,
             }
             dismiss();
             sel?.removeAllRanges();
-          }, '#00FF00')}
+          }, true)}
         </>
       ) : (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, p: 0.25 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 0.25 }}>
           <TextField
             size="small"
-            placeholder="COMMENT..."
+            placeholder="Add a comment..."
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
             onKeyDown={(e) => {
@@ -183,27 +192,33 @@ export default function SelectionToolbar({ containerRef, onHighlight, onComment,
               }
             }}
             autoFocus
+            variant="standard"
             sx={{
               width: 180,
               '& .MuiInputBase-input': {
-                fontSize: '0.75rem',
-                py: 0.5,
-                fontFamily: 'monospace',
+                fontSize: '0.8rem',
+                py: 0.3,
+                fontFamily: 'var(--font-family)',
+                color: 'var(--fg-primary)',
               },
+              '& .MuiInput-underline:before': { borderBottomColor: 'var(--border)' },
+              '& .MuiInput-underline:after': { borderBottomColor: 'var(--accent)' },
+              '& input::placeholder': { color: 'var(--fg-dim)', opacity: 1 },
             }}
           />
           <Box
             onClick={commentText.trim() ? handleCommentSubmit : undefined}
             sx={{
               cursor: commentText.trim() ? 'pointer' : 'default',
-              color: commentText.trim() ? '#00FF00' : '#555',
-              fontFamily: 'monospace',
-              fontSize: '0.7rem',
-              fontWeight: 700,
-              '&:hover': commentText.trim() ? { color: '#E5E5E5' } : {},
+              fontFamily: 'var(--font-family)',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              color: commentText.trim() ? 'var(--accent)' : 'var(--fg-dim)',
+              transition: 'color 0.15s',
+              '&:hover': commentText.trim() ? { opacity: 0.8 } : {},
             }}
           >
-            [OK]
+            Save
           </Box>
         </Box>
       )}

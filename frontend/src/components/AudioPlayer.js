@@ -45,15 +45,16 @@ export default function AudioPlayer({ text }) {
         onClick={loading ? undefined : handlePlay}
         sx={{
           cursor: loading ? 'default' : 'pointer',
-          color: playing ? '#00FF00' : '#888',
-          fontFamily: 'monospace',
-          fontSize: '0.7rem',
-          fontWeight: 700,
+          color: playing ? 'var(--accent)' : 'var(--fg-dim)',
+          fontFamily: 'var(--font-family)',
+          fontSize: '0.72rem',
+          fontWeight: 600,
           opacity: loading ? 0.5 : 1,
-          '&:hover': loading ? {} : { color: '#E5E5E5' },
+          transition: 'color 0.15s',
+          '&:hover': loading ? {} : { color: 'var(--accent)' },
         }}
       >
-        {loading ? '[...]' : playing ? '[STOP]' : '[TTS]'}
+        {loading ? '...' : playing ? 'Stop' : 'Listen'}
       </Box>
     </Tooltip>
   );

@@ -7,7 +7,7 @@ export default function SmartCitation({ source }) {
 
   const pages = source.pages || [];
   const pageLabel = pages.length
-    ? `p.${pages[0]}${pages.length > 1 ? '-' + pages[pages.length - 1] : ''}`
+    ? `p.${pages[0]}${pages.length > 1 ? '–' + pages[pages.length - 1] : ''}`
     : `#${source.index}`;
 
   const excerpt = source.excerpt
@@ -21,17 +21,19 @@ export default function SmartCitation({ source }) {
         component="span"
         sx={{
           display: 'inline-block',
-          border: '1px solid #333333',
-          px: 0.75,
-          py: 0.25,
+          border: '1px solid var(--border)',
+          borderRadius: '20px',
+          px: 1,
+          py: 0.2,
           mr: 0.5,
           mb: 0.5,
           cursor: pages[0] ? 'pointer' : 'default',
-          '&:hover': pages[0] ? { borderColor: '#00FF00', color: '#00FF00' } : {},
+          transition: 'all 0.15s',
+          '&:hover': pages[0] ? { borderColor: 'var(--accent)', bgcolor: 'var(--accent-dim)' } : {},
         }}
       >
-        <Typography component="span" sx={{ fontSize: '0.65rem', fontFamily: 'monospace', color: '#888' }}>
-          [{pageLabel}]
+        <Typography component="span" sx={{ fontSize: '0.65rem', fontFamily: 'var(--font-family)', fontWeight: 600, color: 'var(--accent)' }}>
+          {pageLabel}
         </Typography>
       </Box>
     </Tooltip>

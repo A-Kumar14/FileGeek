@@ -96,10 +96,11 @@ function ToolBtn({ label, onClick, disabled, active, tooltip }) {
       onClick={disabled ? undefined : onClick}
       sx={{
         cursor: disabled ? 'default' : 'pointer',
-        color: disabled ? '#555' : active ? '#00FF00' : '#888',
-        fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 700,
-        px: 0.5, userSelect: 'none',
-        '&:hover': disabled ? {} : { color: '#E5E5E5' },
+        color: disabled ? 'var(--fg-dim)' : active ? 'var(--accent)' : 'var(--fg-secondary)',
+        fontFamily: 'var(--font-family)', fontSize: '0.78rem', fontWeight: 600,
+        px: 0.75, py: 0.25, borderRadius: '6px',
+        userSelect: 'none', transition: 'all 0.15s',
+        '&:hover': disabled ? {} : { color: 'var(--accent)', bgcolor: 'var(--accent-dim)' },
       }}
     >
       {label}
@@ -109,7 +110,7 @@ function ToolBtn({ label, onClick, disabled, active, tooltip }) {
 }
 
 function Sep() {
-  return <Box sx={{ width: '1px', height: 20, bgcolor: '#333333', mx: 0.25 }} />;
+  return <Box sx={{ width: '1px', height: 16, bgcolor: 'var(--border)', mx: 0.5, flexShrink: 0 }} />;
 }
 
 function PdfViewer({ file, targetPage, onPageChange }) {
@@ -292,12 +293,12 @@ function PdfViewer({ file, targetPage, onPageChange }) {
         onLoadSuccess={onDocumentLoadSuccess}
         loading={
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', p: 4 }}>
-            <Typography sx={{ fontFamily: 'monospace', color: '#888' }}>[ LOADING... ]</Typography>
+            <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.85rem', color: 'var(--fg-dim)' }}>Loading document...</Typography>
           </Box>
         }
         error={
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', p: 4 }}>
-            <Typography sx={{ fontFamily: 'monospace', color: '#FF0000' }}>ERROR: FAILED_TO_LOAD_PDF</Typography>
+            <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.85rem', color: 'var(--error)' }}>Failed to load document</Typography>
           </Box>
         }
       >
@@ -308,7 +309,7 @@ function PdfViewer({ file, targetPage, onPageChange }) {
               <Box className="pdf-toolbar">
                 {/* Page navigation */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <ToolBtn label="[<]" onClick={() => goToPage(pageNum - 1)} disabled={pageNum <= 1} tooltip="Previous page" />
+                  <ToolBtn label="‹" onClick={() => goToPage(pageNum - 1)} disabled={pageNum <= 1} tooltip="Previous page" />
                   <TextField
                     size="small"
                     value={pageInput || pageNum}
@@ -323,42 +324,42 @@ function PdfViewer({ file, targetPage, onPageChange }) {
                       }
                     }}
                     onFocus={() => setPageInput(String(pageNum))}
-                    slotProps={{ input: { sx: { textAlign: 'center', fontSize: '0.8rem', fontFamily: 'monospace', py: 0.25, px: 0.5 } } }}
-                    sx={{ width: 44 }}
+                    slotProps={{ input: { sx: { textAlign: 'center', fontSize: '0.8rem', fontFamily: 'var(--font-family)', py: 0.25, px: 0.5 } } }}
+                    sx={{ width: 44, '& .MuiOutlinedInput-root': { borderRadius: '6px' } }}
                     aria-label="Go to page"
                   />
-                  <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#888', whiteSpace: 'nowrap' }}>
+                  <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.75rem', color: 'var(--fg-dim)', whiteSpace: 'nowrap' }}>
                     / {numPages}
                   </Typography>
-                  <ToolBtn label="[>]" onClick={() => goToPage(pageNum + 1)} disabled={pageNum >= numPages} tooltip="Next page" />
+                  <ToolBtn label="›" onClick={() => goToPage(pageNum + 1)} disabled={pageNum >= numPages} tooltip="Next page" />
                 </Box>
 
                 <Sep />
 
                 {/* Zoom */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <ToolBtn label="[-]" onClick={() => setScale((s) => Math.max(s - 0.2, 0.5))} disabled={scale <= 0.5} tooltip="Zoom out" />
-                  <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#E5E5E5', minWidth: 36, textAlign: 'center' }}>
+                  <ToolBtn label="−" onClick={() => setScale((s) => Math.max(s - 0.2, 0.5))} disabled={scale <= 0.5} tooltip="Zoom out" />
+                  <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.75rem', color: 'var(--fg-secondary)', minWidth: 36, textAlign: 'center' }}>
                     {Math.round(scale * 100)}%
                   </Typography>
-                  <ToolBtn label="[+]" onClick={() => setScale((s) => Math.min(s + 0.2, 3))} disabled={scale >= 3} tooltip="Zoom in" />
+                  <ToolBtn label="+" onClick={() => setScale((s) => Math.min(s + 0.2, 3))} disabled={scale >= 3} tooltip="Zoom in" />
                 </Box>
 
                 <Sep />
 
                 {/* Rotate */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                  <ToolBtn label="[<R]" onClick={() => setRotation((r) => (r - 90 + 360) % 360)} tooltip="Rotate left" />
-                  <ToolBtn label="[R>]" onClick={() => setRotation((r) => (r + 90) % 360)} tooltip="Rotate right" />
+                  <ToolBtn label="↺" onClick={() => setRotation((r) => (r - 90 + 360) % 360)} tooltip="Rotate left" />
+                  <ToolBtn label="↻" onClick={() => setRotation((r) => (r + 90) % 360)} tooltip="Rotate right" />
                 </Box>
 
                 <Sep />
 
                 {/* Tools */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                  <ToolBtn label="[NOTES]" onClick={() => setNotePanelOpen(true)} tooltip="Open notes" />
-                  <ToolBtn label="[INV]" onClick={() => setDarkFilter((d) => !d)} active={darkFilter} tooltip={darkFilter ? 'Normal view' : 'Dark reading mode'} />
-                  {hasAnnotations && <ToolBtn label="[EXP]" onClick={handleExportAnnotations} tooltip="Export annotations" />}
+                  <ToolBtn label="Notes" onClick={() => setNotePanelOpen(true)} tooltip="Open notes" />
+                  <ToolBtn label="Invert" onClick={() => setDarkFilter((d) => !d)} active={darkFilter} tooltip={darkFilter ? 'Normal view' : 'Dark reading mode'} />
+                  {hasAnnotations && <ToolBtn label="Export" onClick={handleExportAnnotations} tooltip="Export annotations" />}
                 </Box>
               </Box>
             </header>

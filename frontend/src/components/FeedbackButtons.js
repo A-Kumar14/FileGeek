@@ -21,41 +21,27 @@ export default function FeedbackButtons({ messageId }) {
     }
   };
 
+  const btnSx = (type, activeColor) => ({
+    cursor: 'pointer',
+    fontSize: '0.72rem',
+    fontWeight: 600,
+    fontFamily: 'var(--font-family)',
+    color: feedback === type ? activeColor : 'var(--fg-dim)',
+    transition: 'color 0.15s',
+    '&:hover': { color: activeColor },
+  });
+
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
       <Tooltip title={feedback === 'up' ? 'Recorded' : 'Helpful'}>
-        <Box
-          onClick={() => handleFeedback('up')}
-          sx={{
-            cursor: 'pointer',
-            color: feedback === 'up' ? '#00FF00' : '#888',
-            fontFamily: 'monospace',
-            fontSize: '0.7rem',
-            fontWeight: 700,
-            '&:hover': { color: '#00FF00' },
-          }}
-        >
-          [+]
-        </Box>
+        <Box onClick={() => handleFeedback('up')} sx={btnSx('up', 'var(--success)')}>↑</Box>
       </Tooltip>
       <Tooltip title={feedback === 'down' ? 'Recorded' : 'Not helpful'}>
-        <Box
-          onClick={() => handleFeedback('down')}
-          sx={{
-            cursor: 'pointer',
-            color: feedback === 'down' ? '#FF0000' : '#888',
-            fontFamily: 'monospace',
-            fontSize: '0.7rem',
-            fontWeight: 700,
-            '&:hover': { color: '#FF0000' },
-          }}
-        >
-          [-]
-        </Box>
+        <Box onClick={() => handleFeedback('down')} sx={btnSx('down', 'var(--error)')}>↓</Box>
       </Tooltip>
       {showThanks && (
-        <Typography sx={{ color: '#00FF00', fontSize: '0.65rem', fontFamily: 'monospace' }}>
-          OK
+        <Typography sx={{ fontSize: '0.65rem', color: 'var(--success)', fontFamily: 'var(--font-family)' }}>
+          Thanks
         </Typography>
       )}
     </Box>

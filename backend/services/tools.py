@@ -231,7 +231,6 @@ Example format:
             question=instruction,
             chat_history=[],
             model_override=model_override,
-            persona="academic",
         )
         content = self._parse_json_array(raw, "quiz", session_id)
 
@@ -266,7 +265,6 @@ Example format:
             question=instruction,
             chat_history=[],
             model_override=model_override,
-            persona="academic",
         )
 
         return {
@@ -348,7 +346,6 @@ Example format:
             question=instruction,
             chat_history=[],
             model_override=model_override,
-            persona="academic",
         )
         content = self._parse_json_array(raw, "flashcards", session_id)
 

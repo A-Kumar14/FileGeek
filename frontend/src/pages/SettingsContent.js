@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
 import {
   TextField, Typography, Box, Divider,
-  Select, MenuItem, FormControl, InputLabel, Button,
+  Select, MenuItem, FormControl, InputLabel,
+  Button, Switch, FormControlLabel,
 } from '@mui/material';
 import { useChatContext } from '../contexts/ChatContext';
-import { usePersona } from '../contexts/PersonaContext';
 import { useThemeMode } from '../theme/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import { THEME_NAMES, FONT_NAMES } from '../theme/themes';
+import { MODELS } from '../components/ModelSelector';
+import { useModelContext } from '../contexts/ModelContext';
 
 function Section({ label, children }) {
   return (
     <Box sx={{ mb: 2.5 }}>
-      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--fg-primary)', mb: 1.25, fontFamily: 'var(--font-family)' }}>
+      <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--fg-dim)', mb: 1.25, fontFamily: 'var(--font-family)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
         {label}
       </Typography>
       {children}
@@ -19,7 +22,7 @@ function Section({ label, children }) {
   );
 }
 
-function SaveBtn({ onClick }) {
+function SaveBtn({ onClick, label = 'Save' }) {
   return (
     <Button variant="contained" size="small" onClick={onClick} disableElevation
       sx={{
@@ -29,41 +32,63 @@ function SaveBtn({ onClick }) {
         whiteSpace: 'nowrap', textTransform: 'none', flexShrink: 0, minWidth: 64,
         '&:hover': { bgcolor: 'var(--accent)', opacity: 0.88 },
       }}
-    >Save</Button>
+    >{label}</Button>
   );
 }
 
+const selectSx = { fontFamily: 'var(--font-family)', fontSize: '0.82rem', borderRadius: '10px' };
+const labelSx = { fontFamily: 'var(--font-family)', fontSize: '0.82rem' };
+const inputSx = { '& .MuiOutlinedInput-root': { borderRadius: '10px', fontFamily: 'var(--font-family)', fontSize: '0.82rem' } };
+
 export default function SettingsContent() {
-  const { clearAllSessions } = useChatContext();
-  const { personaId, selectPersona, personas } = usePersona();
+  const { clearAllSessions, chatSessions, messages } = useChatContext();
   const { themeName, setTheme, font, setFont } = useThemeMode();
-  const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('filegeek-gemini-key') || '');
-  const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem('filegeek-api-key') || '');
-  const [notionToken, setNotionToken] = useState(() => localStorage.getItem('filegeek-notion-token') || '');
+  const { logout, user } = useAuth();
+  const { selectedModel, setSelectedModel } = useModelContext();
+
+  const [poeKey, setPoeKey] = useState(() => localStorage.getItem('filegeek-poe-key') || '');
+  const [responseStyle, setResponseStyle] = useState(() => localStorage.getItem('filegeek-response-style') || 'balanced');
+  const [autoTitle, setAutoTitle] = useState(() => localStorage.getItem('filegeek-auto-title') !== 'false');
   const [saved, setSaved] = useState(false);
 
   const flash = () => { setSaved(true); setTimeout(() => setSaved(false), 2000); };
 
-  const handleSaveGemini = () => {
-    if (geminiKey.trim()) localStorage.setItem('filegeek-gemini-key', geminiKey.trim());
-    else localStorage.removeItem('filegeek-gemini-key');
+  const handleSavePoeKey = () => {
+    if (poeKey.trim()) localStorage.setItem('filegeek-poe-key', poeKey.trim());
+    else localStorage.removeItem('filegeek-poe-key');
     flash();
   };
-  const handleSaveOpenai = () => {
-    if (openaiKey.trim()) localStorage.setItem('filegeek-api-key', openaiKey.trim());
-    else localStorage.removeItem('filegeek-api-key');
+
+  const handleSaveResponseStyle = (value) => {
+    setResponseStyle(value);
+    localStorage.setItem('filegeek-response-style', value);
     flash();
   };
-  const handleSaveNotionToken = () => {
-    if (notionToken.trim()) localStorage.setItem('filegeek-notion-token', notionToken.trim());
-    else localStorage.removeItem('filegeek-notion-token');
-    flash();
+
+  const handleAutoTitleToggle = (e) => {
+    const val = e.target.checked;
+    setAutoTitle(val);
+    localStorage.setItem('filegeek-auto-title', String(val));
   };
+
+  const handleExportData = () => {
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      sessions: chatSessions,
+      messages,
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `filegeek-export-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleClearHistory = () => { clearAllSessions(); flash(); };
 
-  const selectSx = { fontFamily: 'var(--font-family)', fontSize: '0.82rem', borderRadius: '10px' };
-  const labelSx = { fontFamily: 'var(--font-family)', fontSize: '0.82rem' };
-  const inputSx = { '& .MuiOutlinedInput-root': { borderRadius: '10px', fontFamily: 'var(--font-family)', fontSize: '0.82rem' } };
+  const handleSignOut = async () => { await logout(); };
 
   return (
     <Box sx={{ fontFamily: 'var(--font-family)' }}>
@@ -80,19 +105,7 @@ export default function SettingsContent() {
 
       <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
 
-      <Section label="AI Persona">
-        <FormControl fullWidth size="small">
-          <InputLabel sx={labelSx}>Persona</InputLabel>
-          <Select value={personaId} onChange={(e) => selectPersona(e.target.value)} label="Persona" sx={selectSx}>
-            {personas.map((p) => (
-              <MenuItem key={p.id} value={p.id} sx={{ fontFamily: 'var(--font-family)', fontSize: '0.82rem' }}>{p.label}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Section>
-
-      <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
-
+      {/* Appearance */}
       <Section label="Appearance">
         <Box sx={{ display: 'flex', gap: 2 }}>
           <FormControl fullWidth size="small">
@@ -120,45 +133,136 @@ export default function SettingsContent() {
 
       <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
 
-      <Section label="Gemini API Key" description="Required for Gemini 2.0 Flash and 2.5 Pro models.">
+      {/* AI Provider */}
+      <Section label="AI Provider">
+        <Typography sx={{ fontSize: '0.78rem', color: 'var(--fg-secondary)', fontFamily: 'var(--font-family)', mb: 1.5 }}>
+          FileGeek uses Poe to access Grok 3, DeepSeek R1 and other models. Enter your Poe API key below.
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+          <TextField fullWidth size="small" type="password" placeholder="p-•••••••••••••••" value={poeKey}
+            onChange={(e) => setPoeKey(e.target.value)} sx={inputSx} />
+          <SaveBtn onClick={handleSavePoeKey} />
+        </Box>
+
+        <FormControl fullWidth size="small">
+          <InputLabel sx={labelSx}>Default model</InputLabel>
+          <Select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} label="Default model" sx={selectSx}
+            MenuProps={{ PaperProps: { sx: { borderRadius: '12px', border: '1px solid var(--border)' } } }}>
+            {MODELS.map((m) => (
+              <MenuItem key={m.id} value={m.id} sx={{ fontFamily: 'var(--font-family)', fontSize: '0.82rem' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <span>{m.name}</span>
+                  <Box sx={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--fg-dim)', bgcolor: 'var(--bg-tertiary)', px: 0.75, py: 0.15, borderRadius: '4px' }}>
+                    {m.badge}
+                  </Box>
+                </Box>
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Section>
+
+      <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
+
+      {/* Response Style */}
+      <Section label="Response Style">
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField fullWidth size="small" type="password" placeholder="AIza..." value={geminiKey}
-            onChange={(e) => setGeminiKey(e.target.value)} sx={inputSx} />
-          <SaveBtn onClick={handleSaveGemini} />
+          {['concise', 'balanced', 'detailed'].map((style) => (
+            <Box
+              key={style}
+              onClick={() => handleSaveResponseStyle(style)}
+              sx={{
+                flex: 1,
+                textAlign: 'center',
+                py: 0.75,
+                borderRadius: '10px',
+                border: `1px solid ${responseStyle === style ? 'var(--accent)' : 'var(--border)'}`,
+                bgcolor: responseStyle === style ? 'var(--accent-dim)' : 'transparent',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                '&:hover': { borderColor: 'var(--accent)', bgcolor: 'var(--accent-dim)' },
+              }}
+            >
+              <Typography sx={{ fontSize: '0.78rem', fontWeight: responseStyle === style ? 700 : 500, color: responseStyle === style ? 'var(--accent)' : 'var(--fg-secondary)', fontFamily: 'var(--font-family)', textTransform: 'capitalize' }}>
+                {style}
+              </Typography>
+            </Box>
+          ))}
         </Box>
       </Section>
 
       <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
 
-      <Section label="OpenAI API Key" description="Required for GPT-4o Mini and GPT-4o models.">
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField fullWidth size="small" type="password" placeholder="sk-..." value={openaiKey}
-            onChange={(e) => setOpenaiKey(e.target.value)} sx={inputSx} />
-          <SaveBtn onClick={handleSaveOpenai} />
-        </Box>
+      {/* Preferences */}
+      <Section label="Preferences">
+        <FormControlLabel
+          control={
+            <Switch
+              checked={autoTitle}
+              onChange={handleAutoTitleToggle}
+              size="small"
+              sx={{
+                '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--accent)' },
+                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: 'var(--accent)' },
+              }}
+            />
+          }
+          label={
+            <Typography sx={{ fontSize: '0.82rem', fontFamily: 'var(--font-family)', color: 'var(--fg-primary)' }}>
+              Auto-title sessions
+            </Typography>
+          }
+        />
       </Section>
 
       <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
 
-      <Section label="Notion Integration" description="Token to export flashcards and notes to Notion.">
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField fullWidth size="small" type="password" placeholder="ntn_..." value={notionToken}
-            onChange={(e) => setNotionToken(e.target.value)} sx={inputSx} />
-          <SaveBtn onClick={handleSaveNotionToken} />
-        </Box>
-      </Section>
-
-      <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
-
+      {/* Data */}
       <Section label="Data">
-        <Button variant="outlined" size="small" onClick={handleClearHistory}
-          sx={{
-            borderColor: 'var(--error)', color: 'var(--error)',
-            fontFamily: 'var(--font-family)', fontSize: '0.78rem', fontWeight: 600,
-            borderRadius: '10px', textTransform: 'none',
-            '&:hover': { bgcolor: 'rgba(220,38,38,0.06)', borderColor: 'var(--error)' },
-          }}
-        >Clear all history</Button>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Button variant="outlined" size="small" onClick={handleExportData}
+            sx={{
+              borderColor: 'var(--border)', color: 'var(--fg-secondary)',
+              fontFamily: 'var(--font-family)', fontSize: '0.78rem', fontWeight: 600,
+              borderRadius: '10px', textTransform: 'none', alignSelf: 'flex-start',
+              '&:hover': { bgcolor: 'var(--bg-secondary)', borderColor: 'var(--fg-dim)' },
+            }}
+          >Export all data</Button>
+
+          <Button variant="outlined" size="small" onClick={handleClearHistory}
+            sx={{
+              borderColor: 'var(--error)', color: 'var(--error)',
+              fontFamily: 'var(--font-family)', fontSize: '0.78rem', fontWeight: 600,
+              borderRadius: '10px', textTransform: 'none', alignSelf: 'flex-start',
+              '&:hover': { bgcolor: 'rgba(220,38,38,0.06)', borderColor: 'var(--error)' },
+            }}
+          >Clear all history</Button>
+        </Box>
+      </Section>
+
+      <Divider sx={{ borderColor: 'var(--border)', mb: 2.5 }} />
+
+      {/* Account */}
+      <Section label="Account">
+        {user && (
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, p: 1.5, borderRadius: '10px', bgcolor: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+            <Box>
+              <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, fontFamily: 'var(--font-family)', color: 'var(--fg-primary)' }}>
+                {user.email || user.name || 'User'}
+              </Typography>
+              <Typography sx={{ fontSize: '0.72rem', color: 'var(--fg-dim)', fontFamily: 'var(--font-family)' }}>
+                Signed in
+              </Typography>
+            </Box>
+            <Button size="small" onClick={handleSignOut}
+              sx={{
+                color: 'var(--fg-secondary)', fontFamily: 'var(--font-family)', fontSize: '0.75rem', fontWeight: 600,
+                borderRadius: '8px', textTransform: 'none', border: '1px solid var(--border)',
+                '&:hover': { borderColor: 'var(--fg-dim)', bgcolor: 'var(--bg-tertiary)' },
+              }}
+            >Sign out</Button>
+          </Box>
+        )}
       </Section>
     </Box>
   );

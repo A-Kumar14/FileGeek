@@ -6,7 +6,6 @@ import './App.css';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { FileProvider } from './contexts/FileContext';
 import { ChatProvider } from './contexts/ChatContext';
-import { PersonaProvider } from './contexts/PersonaContext';
 import { ModelProvider } from './contexts/ModelContext';
 import { AnnotationProvider } from './contexts/AnnotationContext';
 import LoginPage from './pages/LoginPage';
@@ -15,6 +14,7 @@ import SettingsPage from './pages/SettingsPage';
 import MainLayout from './pages/MainLayout';
 import AnalyticsPage from './pages/AnalyticsPage';
 import ReviewQueuePage from './pages/ReviewQueuePage';
+import ExplorePage from './pages/ExplorePage';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth();
@@ -59,6 +59,14 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/explore"
+        element={
+          <ProtectedRoute>
+            <ExplorePage />
+          </ProtectedRoute>
+        }
+      />
     </Routes>
   );
 }
@@ -67,18 +75,16 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <PersonaProvider>
-          <ModelProvider>
-            <FileProvider>
-              <ChatProvider>
-                <AnnotationProvider>
-                  <a href="#main-content" className="skip-to-content">Skip to content</a>
-                  <AppRoutes />
-                </AnnotationProvider>
-              </ChatProvider>
-            </FileProvider>
-          </ModelProvider>
-        </PersonaProvider>
+        <ModelProvider>
+          <FileProvider>
+            <ChatProvider>
+              <AnnotationProvider>
+                <a href="#main-content" className="skip-to-content">Skip to content</a>
+                <AppRoutes />
+              </AnnotationProvider>
+            </ChatProvider>
+          </FileProvider>
+        </ModelProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

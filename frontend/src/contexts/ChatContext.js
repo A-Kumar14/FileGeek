@@ -2,7 +2,6 @@ import React, { createContext, useState, useContext, useCallback, useRef, useEff
 import { useQueryClient } from '@tanstack/react-query';
 import useChat from '../hooks/useChat';
 import { useFile } from './FileContext';
-import { usePersona } from './PersonaContext';
 import { useModelContext } from './ModelContext';
 import { useSessionsList, useCreateSession, useDeleteSession } from '../hooks/useSessions';
 import useDocumentIndexing from '../hooks/useDocumentIndexing';
@@ -41,7 +40,6 @@ export function ChatProvider({ children }) {
   const fileCtx = useFile();
   const setRemoteFile = fileCtx?.setRemoteFile;
   const removeFile = fileCtx?.removeFile;
-  const { personaId } = usePersona();
   const { selectedModel } = useModelContext();
   const queryClient = useQueryClient();
 
@@ -105,7 +103,6 @@ export function ChatProvider({ children }) {
       try {
         session = await createSessionMutation.mutateAsync({
           title: fileName || 'Untitled Session',
-          persona: personaId || 'academic',
         });
       } catch {
         // Fall back to local session
@@ -117,7 +114,6 @@ export function ChatProvider({ children }) {
       session = {
         id,
         title: fileName || 'Untitled Session',
-        persona: personaId || 'academic',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         messages: [],
@@ -133,7 +129,7 @@ export function ChatProvider({ children }) {
       return updated.slice(0, MAX_SESSIONS);
     });
     return session.id;
-  }, [personaId, createSessionMutation]);
+  }, [createSessionMutation]);
 
   const loadSession = useCallback(async (sessionId) => {
     setActiveSessionId(sessionId);
@@ -216,7 +212,7 @@ export function ChatProvider({ children }) {
     }
   }, [documentIndexing]);
 
-  const sendMessage = useCallback(async (question) => {
+  const sendMessage = useCallback(async (question, overrideModel = null) => {
     if (!question.trim()) return;
 
     const allFiles = fileCtx?.files || [];
@@ -226,7 +222,7 @@ export function ChatProvider({ children }) {
 
     let sessionId = activeSessionId;
     if (!sessionId) {
-      const defaultName = fileCtx?.file ? fileCtx.file.name : 'New Chat';
+      const defaultName = (fileCtx?.file && typeof fileCtx.file !== 'string') ? fileCtx.file.name : 'New Chat';
       const defaultType = fileCtx?.fileType || 'general';
       sessionId = await startNewSession(defaultName, defaultType);
     }
@@ -263,7 +259,7 @@ export function ChatProvider({ children }) {
           result = await sendSessionMessage(sessionId, {
             question: question.trim(),
             deepThink: deepThinkEnabled,
-            model: selectedModel,
+            model: overrideModel || selectedModel,
             onChunk: (chunk) => {
               if (stopGenerationRef.current) return;
               accumulatedContent += chunk;
@@ -284,7 +280,7 @@ export function ChatProvider({ children }) {
       // Fall back to legacy flow
       if (!result) {
         const chatHistory = messages.map(({ role, content }) => ({ role, content }));
-        const legacyResult = await apiSendMessage(question, filesToUpload, chatHistory, deepThinkEnabled, personaId, selectedModel);
+        const legacyResult = await apiSendMessage(question, filesToUpload, chatHistory, deepThinkEnabled, overrideModel || selectedModel);
         result = {
           answer: legacyResult.answer,
           sources: legacyResult.sources,
@@ -309,6 +305,7 @@ export function ChatProvider({ children }) {
       // Invalidate session query so React Query picks up new messages
       if (sessionId) {
         queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
+        queryClient.invalidateQueries({ queryKey: ['sessions'] });
       }
 
       if (result.artifacts?.length > 0) {
@@ -345,7 +342,7 @@ export function ChatProvider({ children }) {
       setLoading(false);
       stopLoadingPhases();
     }
-  }, [fileCtx, messages, activeSessionId, deepThinkEnabled, personaId, selectedModel, apiSendMessage, startNewSession, saveCurrentSession, startLoadingPhases, stopLoadingPhases, indexDocumentToSession, queryClient]);
+  }, [fileCtx, messages, activeSessionId, deepThinkEnabled, selectedModel, apiSendMessage, startNewSession, saveCurrentSession, startLoadingPhases, stopLoadingPhases, indexDocumentToSession, queryClient]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);

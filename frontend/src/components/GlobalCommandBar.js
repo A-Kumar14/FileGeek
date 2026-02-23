@@ -9,12 +9,7 @@ import { useChatContext } from '../contexts/ChatContext';
 import { useModelContext } from '../contexts/ModelContext';
 import { useFile } from '../contexts/FileContext';
 
-const CHAT_MODELS = [
-    { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', badge: 'FREE' },
-    { id: 'gpt-4o-mini', label: 'GPT-4o Mini', badge: 'FREE' },
-    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', badge: 'PRO' },
-    { id: 'gpt-4o', label: 'GPT-4o', badge: 'PRO' },
-];
+import { MODELS } from './ModelSelector';
 
 export default function GlobalCommandBar({ sidebarOffset = 0 }) {
     const inputRef = useRef(null);
@@ -27,12 +22,12 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
     const [deepThink, setDeepThink] = useState(false);
     const [modelMenuAnchor, setModelMenuAnchor] = useState(null);
 
-    const activeModel = CHAT_MODELS.find(m => m.id === selectedModel) || CHAT_MODELS[0];
+    const activeModel = MODELS.find(m => m.id === selectedModel) || MODELS[0];
 
     // Listen for suggestion card fills
     useEffect(() => {
         const handler = (e) => {
-            setInput(e.detail || '');
+            setInput(typeof e.detail === 'string' ? e.detail : (e.detail?.text || ''));
             setTimeout(() => inputRef.current?.focus(), 50);
         };
         window.addEventListener('fg:set-input', handler);
@@ -191,50 +186,12 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
                         }}
                     >
                         <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--accent)' }}>
-                            {activeModel.label}
+                            {activeModel.name}
                         </Typography>
-                        <Typography sx={{ fontSize: '0.6rem', color: '#94A3B8' }}>▾</Typography>
+                        <Typography sx={{ fontSize: '0.6rem', color: 'var(--fg-dim)' }}>▾</Typography>
                     </Box>
 
-                    {/* Deep Think toggle pill */}
-                    <Tooltip title="Deep Think — slower but more thorough">
-                        <Box
-                            onClick={() => setDeepThink(v => !v)}
-                            sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 0.5,
-                                border: deepThink ? '1px solid var(--border-focus)' : '1px solid var(--border)',
-                                borderRadius: '20px',
-                                px: 1.5,
-                                py: 0.4,
-                                cursor: 'pointer',
-                                background: deepThink ? 'var(--accent-dim)' : 'transparent',
-                                transition: 'all 0.15s',
-                                '&:hover': { background: 'var(--accent-dim)' },
-                            }}
-                        >
-                            <AutoAwesomeIcon sx={{ fontSize: 13, color: deepThink ? 'var(--accent)' : '#94A3B8' }} />
-                            <Typography sx={{ fontSize: '0.72rem', fontWeight: 500, color: deepThink ? 'var(--accent)' : '#94A3B8' }}>
-                                Deep Think
-                            </Typography>
-                        </Box>
-                    </Tooltip>
 
-                    {/* Mic button */}
-                    <Tooltip title="Voice input">
-                        <IconButton
-                            size="small"
-                            sx={{
-                                color: '#94A3B8',
-                                width: 30,
-                                height: 30,
-                                '&:hover': { color: 'var(--accent)', background: 'var(--accent-dim)' },
-                            }}
-                        >
-                            <MicIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
-                    </Tooltip>
 
                     <Box sx={{ flex: 1 }} />
 
@@ -254,8 +211,8 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
                                 '&:hover': { background: 'var(--accent-dim)' },
                             }}
                         >
-                            <AttachFileIcon sx={{ fontSize: 14, color: '#94A3B8' }} />
-                            <Typography sx={{ fontSize: '0.72rem', color: '#94A3B8' }}>Attach file</Typography>
+                            <AttachFileIcon sx={{ fontSize: 14, color: 'var(--fg-dim)' }} />
+                            <Typography sx={{ fontSize: '0.72rem', color: 'var(--fg-dim)' }}>Attach file</Typography>
                         </Box>
                     </Tooltip>
                 </Box>
@@ -280,11 +237,11 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
                 }}
             >
                 <Box sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
-                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                         Select Model
                     </Typography>
                 </Box>
-                {CHAT_MODELS.map((m) => (
+                {MODELS.map((m) => (
                     <MenuItem
                         key={m.id}
                         selected={m.id === selectedModel}
@@ -303,19 +260,28 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
                         }}
                     >
                         <Typography sx={{ fontSize: '0.82rem', fontWeight: m.id === selectedModel ? 600 : 400, color: '#0F172A' }}>
-                            {m.label}
+                            {m.name}
                         </Typography>
-                        <Typography sx={{
-                            fontSize: '0.6rem',
-                            fontWeight: 600,
-                            color: m.badge === 'FREE' ? '#059669' : 'var(--accent)',
-                            border: `1px solid ${m.badge === 'FREE' ? '#059669' : 'var(--accent)'}`,
+                        <Box sx={{
+                            fontSize: '0.62rem',
+                            fontWeight: 700,
+                            border: `1px solid ${m.badge === 'XAI' ? '#FFFFFF' :
+                                m.badge === 'DEEPSEEK' ? '#4d6bfe' :
+                                    '#0668E1'
+                                }`,
+                            color: m.badge === 'XAI' ? '#000000' :
+                                m.badge === 'DEEPSEEK' ? '#4d6bfe' :
+                                    '#0668E1',
+                            bgcolor: m.badge === 'XAI' ? '#FFFFFF' :
+                                m.badge === 'DEEPSEEK' ? '#4d6bfe20' :
+                                    '#0668E120',
                             px: 0.75,
                             py: 0.15,
-                            borderRadius: '8px',
+                            borderRadius: 0,
+                            fontFamily: 'monospace',
                         }}>
                             {m.badge}
-                        </Typography>
+                        </Box>
                     </MenuItem>
                 ))}
             </Menu>

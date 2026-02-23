@@ -5,7 +5,7 @@ python-multipart==0.0.9
 slowapi==0.1.9
 
 # Async SQLAlchemy + SQLite
-aiosqlite==0.20.0
+aiosqlite>=0.20.0
 sqlalchemy[asyncio]==2.0.36
 alembic==1.14.1
 
@@ -62,6 +62,10 @@ structlog==25.1.0
 
 # AWS S3 (optional file storage)
 boto3==1.38.0
+
+# Web search + scraping (Explore Hub)
+ddgs>=0.1.0
+trafilatura>=1.12.0
 
 # Production server (use: gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app)
 gunicorn==23.0.0

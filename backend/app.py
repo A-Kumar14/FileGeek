@@ -18,7 +18,7 @@ from werkzeug.utils import secure_filename
 from config import Config
 from models import db, User, StudySession, ChatMessage, SessionDocument
 from auth import auth_bp, JWT_SECRET
-from services.ai_service import AIService, PersonaManager, get_persona_prompt
+from services.ai_service import AIService
 from services.file_service import FileService
 from services.rag_service import RAGService, MemoryService
 from services.tools import ToolExecutor
@@ -66,6 +66,7 @@ CORS(
         re.compile(r"https://.*\.vercel\.app"),
         re.compile(r"https://.*\.onrender\.com"),
     ],
+    supports_credentials=True,
 )
 
 app.register_blueprint(auth_bp, url_prefix="/auth")
@@ -174,11 +175,6 @@ def health_check():
         ),
         200,
     )
-
-
-@app.route("/personas", methods=["GET"])
-def list_personas():
-    return jsonify({"personas": PersonaManager.list_all()}), 200
 
 
 # =========================================================
@@ -302,9 +298,8 @@ def create_session():
     user_id = _get_user_id()
     data = request.get_json(silent=True) or {}
     title = (data.get("title") or "").strip() or "Untitled Session"
-    persona = (data.get("persona") or "").strip() or "academic"
 
-    session = StudySession(user_id=user_id, title=title, persona=persona)
+    session = StudySession(user_id=user_id, title=title)
     db.session.add(session)
     db.session.commit()
 
@@ -477,7 +472,6 @@ def send_session_message(session_id):
             tool_executor=tool_executor,
             session_id=session_id,
             user_id=user_id,
-            persona=session.persona or "academic",
             file_type="pdf",
             model_override=model_override,
             memory_context=memory_context,
@@ -915,7 +909,6 @@ def upload_file():
         n_chunks = Config.DEEP_THINK_CHUNKS if deep_think else Config.NUM_RETRIEVAL_CHUNKS
         custom_model = sanitize_model(request.form.get("model"))
         model_override = custom_model or (AIService.RESPONSE_MODEL if deep_think else None)
-        persona = (request.form.get("persona", "") or "").strip() or "academic"
 
         all_chunks_with_pages = []
         all_file_infos = []
@@ -1001,7 +994,6 @@ def upload_file():
         ai_response = ai_service.answer_from_context(
             relevant_chunks, question, chat_history,
             model_override=model_override,
-            persona=persona,
             file_type=primary_file_type,
             image_paths=image_filepaths or None,
         )
@@ -1060,7 +1052,6 @@ def ask():
         n_chunks = Config.DEEP_THINK_CHUNKS if deep_think else Config.NUM_RETRIEVAL_CHUNKS
         custom_model = sanitize_model(data.get("model"))
         model_override = custom_model or (AIService.RESPONSE_MODEL if deep_think else None)
-        persona = (data.get("persona") or "").strip() or "academic"
 
         all_chunks_with_pages = []
         all_file_infos = []
@@ -1156,7 +1147,6 @@ def ask():
         ai_response = ai_service.answer_from_context(
             relevant_chunks, question, chat_history,
             model_override=model_override,
-            persona=persona,
             file_type=primary_file_type,
             image_paths=image_filepaths or None,
         )
@@ -1197,7 +1187,6 @@ def text_to_speech():
     try:
         data = request.get_json(silent=True) or {}
         text = (data.get("text") or "").strip()
-        persona = (data.get("persona") or "").strip() or "academic"
         if not text:
             return jsonify({"error": "Text is required"}), 400
         if len(text) > 4096:
@@ -1207,11 +1196,9 @@ def text_to_speech():
         if not tts_client:
             return jsonify({"error": "TTS requires OPENAI_API_KEY to be set"}), 503
 
-        voice = PersonaManager.voice_for(persona)
-
         response = tts_client.audio.speech.create(
             model="tts-1",
-            voice=voice,
+            voice="alloy",
             input=text,
         )
 

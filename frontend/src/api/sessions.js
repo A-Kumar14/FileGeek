@@ -5,8 +5,8 @@ export async function listSessions() {
   return res.data.sessions;
 }
 
-export async function createSession({ title, persona }) {
-  const res = await apiClient.post('/sessions', { title, persona });
+export async function createSession({ title }) {
+  const res = await apiClient.post('/sessions', { title });
   return res.data.session;
 }
 
@@ -35,7 +35,7 @@ export async function indexDocument(sessionId, config) {
   }
 
   // Use fetch instead of apiClient to easily manage browser-native FormData boundaries
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
   const res = await fetch(`${API_URL}/sessions/${sessionId}/documents`, {
     method: 'POST',
     headers,

@@ -38,7 +38,7 @@ class StudySession(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), default="Untitled Session")
-    persona: Mapped[str] = mapped_column(String(50), default="academic")
+    session_type: Mapped[str] = mapped_column(String(20), default="chat", server_default="chat")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -56,7 +56,7 @@ class StudySession(Base):
         d = {
             "id": self.id,
             "title": self.title,
-            "persona": self.persona,
+            "session_type": self.session_type or "chat",
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

@@ -27,7 +27,6 @@ class StudySession(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     title = db.Column(db.String(255), default="Untitled Session")
-    persona = db.Column(db.String(50), default="academic")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -44,7 +43,6 @@ class StudySession(db.Model):
         d = {
             "id": self.id,
             "title": self.title,
-            "persona": self.persona,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

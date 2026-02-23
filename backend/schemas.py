@@ -17,7 +17,7 @@ class LoginRequest(BaseModel):
 
 class SessionCreate(BaseModel):
     title: str = "Untitled Session"
-    persona: str = "academic"
+    session_type: str = "chat"
 
 
 class DocumentCreate(BaseModel):
@@ -60,10 +60,18 @@ class S3PresignRequest(BaseModel):
     fileName: str = "file"
     contentType: str = "application/octet-stream"
 
+class ExploreRequest(BaseModel):
+    question: str = Field(min_length=1)
+
+
+class ExploreSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    use_poe_search: bool = False
+    session_id: Optional[str] = None
+
 
 class TTSRequest(BaseModel):
     text: str
-    persona: str = "academic"
 
 
 class ExportRequest(BaseModel):

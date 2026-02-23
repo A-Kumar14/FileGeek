@@ -8,8 +8,8 @@ export function useModelContext() {
 
 export function ModelProvider({ children }) {
   const [selectedModel, setSelectedModel] = useState(() => {
-    // Load from localStorage or default to gemini-2.0-flash
-    return localStorage.getItem('filegeek-selected-model') || 'gemini-2.0-flash';
+    // Load from localStorage or default to grok-3
+    return localStorage.getItem('filegeek-selected-model') || 'grok-3';
   });
 
   // Save to localStorage whenever it changes
@@ -19,9 +19,7 @@ export function ModelProvider({ children }) {
 
   // Get provider from model name
   const getProvider = (modelId) => {
-    if (modelId.startsWith('gemini')) return 'gemini';
-    if (modelId.startsWith('gpt')) return 'openai';
-    return 'gemini'; // default
+    return 'poe'; // all models route through Poe
   };
 
   const provider = getProvider(selectedModel);

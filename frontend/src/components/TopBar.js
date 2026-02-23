@@ -93,7 +93,7 @@ export default function TopBar({ onOpenSettings }) {
             }}
           >
             <SearchIcon sx={{ fontSize: 14, color: 'var(--fg-dim)' }} />
-            <Typography sx={{ fontSize: '0.72rem', color: 'var(--fg-dim)', fontWeight: 500 }}>
+            <Typography sx={{ fontSize: '0.72rem', color: 'var(--fg-dim)', fontWeight: 500, fontFamily: 'monospace' }}>
               {typeof navigator !== 'undefined' && navigator.platform?.includes('Mac') ? '⌘K' : 'Ctrl+K'}
             </Typography>
           </Box>

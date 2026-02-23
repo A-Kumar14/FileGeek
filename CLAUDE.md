@@ -1,428 +1,187 @@
-# CLAUDE.md
+# FileGeek — AI Integration Reference (Claude / Poe)
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+**Updated:** Feb 2026
 
-## Project Overview
+This document covers how FileGeek routes AI requests, what models are available via the Poe API, and the architectural patterns used in the agentic pipeline. It replaces the earlier Gemini-focused planning doc (`gemini.md`).
 
-FileGeek is a full-stack multimodal AI document analysis platform combining RAG (Retrieval-Augmented Generation), agentic tool-calling, and long-term memory. Users upload documents (PDF, DOCX, images, audio) and have AI-powered conversations with them through a persistent session-based architecture.
+---
 
-**Tech Stack:**
-- Backend: Flask + SQLAlchemy (SQLite) + ChromaDB + Celery
-- Frontend: React 19 + MUI 7 + react-pdf
-- AI: Dual-provider (Google Gemini or OpenAI GPT-4o)
-- Infrastructure: Redis for caching/rate-limiting, optional S3 for storage
+## 1. AI Provider: Poe API
 
-## Development Commands
+FileGeek uses the **Poe API** as its unified AI gateway. Poe provides access to frontier models (Grok 3, DeepSeek R1, and optionally Claude) through a single authenticated endpoint, eliminating the need to manage multiple provider SDKs.
 
-### Backend (Flask)
+### Authentication
+- User's Poe API key is entered in **Settings → AI Provider**
+- Stored as `filegeek-poe-key` in localStorage
+- Forwarded to the backend on every request as `X-Poe-Api-Key` (set in `api/client.js`)
+- Backend reads via `request.headers.get("X-Poe-Api-Key")` in `main.py`
 
-```bash
-# Setup
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r ../requirements.txt
+### Active Models
 
-# Create .env in project root with:
-# - GOOGLE_API_KEY or OPENAI_API_KEY (at least one required)
-# - JWT_SECRET (recommended for auth)
-# - AI_PROVIDER=gemini or openai (optional, auto-detects)
+| Model ID | Display Name | Provider | Best For |
+|----------|-------------|----------|----------|
+| `grok-3` | Grok 3 | xAI | Long-form reasoning, complex document Q&A |
+| `grok-3-mini` | Grok 3 Mini | xAI | Fast responses, quick lookups |
+| `DeepSeek-R1` | DeepSeek R1 | DeepSeek | Open-weight; chain-of-thought reasoning |
 
-# Run development server
-python app.py  # Runs on port 5000
+> **To add Claude models** (e.g. `claude-3-7-sonnet`): add an entry to `MODELS` in `ModelSelector.js` and ensure the Poe API key has access to that bot.
 
-# Run Celery worker (separate terminal)
-celery -A celery_app.celery_app worker --loglevel=info
-
-# Run tests
-python test_app.py
-```
-
-### Frontend (React)
-
-```bash
-cd frontend
-npm install
-npm start     # Development server on port 3000
-npm run build # Production build
-npm test      # Run tests
-```
-
-### UploadThing Server (optional file upload sidecar)
-
-```bash
-cd uploadthing-server
-npm install
-npm start  # Runs on port 4000
-```
-
-### Docker Compose (full stack)
-
-```bash
-docker-compose up --build  # Starts backend + frontend + redis + celery
-```
-
-## Architecture
-
-### Backend Service Organization
-
-The backend follows a service-oriented architecture:
+### Model Selection Flow
 
 ```
-backend/
-├── app.py                      # Main Flask app, all endpoints, auth middleware
-├── auth.py                     # JWT authentication (signup/login)
-├── models.py                   # SQLAlchemy models: User, StudySession, ChatMessage, SessionDocument
-├── config.py                   # Centralized config (env vars, paths, limits)
-├── services/
-│   ├── ai_service.py           # Dual-provider AI (Gemini/OpenAI) with agentic tool-calling loop
-│   ├── rag_service.py          # ChromaDB indexing/retrieval + long-term memory
-│   ├── file_service.py         # File extraction (PDF, DOCX, images via OCR, audio via Whisper)
-│   └── tools.py                # Tool definitions (search_documents, generate_quiz, etc.)
-├── tasks/                      # Celery async tasks for document indexing
-├── mcp/                        # Model Context Protocol server for Claude Desktop
-└── utils/                      # Validators, PII masking utilities
+User picks model in ModelSelector / Settings
+  → stored in ModelContext (localStorage: filegeek-model)
+  → sent as X-Poe-Chat-Model header via api/client.js
+  → backend reads header and passes model_id to AIService
+  → AIService calls Poe API with the requested model
 ```
 
-**Key Architectural Decisions:**
+---
 
-1. **Dual AI Provider System**: `ai_service.py` auto-detects available API keys (Gemini or OpenAI). Set `AI_PROVIDER` env var to force a specific provider. Tool-calling format differs between providers (OpenAI uses `tools`, Gemini uses `function_declarations`).
+## 2. Agentic Pipeline (`ai_service.py`)
 
-2. **Session-Scoped RAG**: Documents are indexed into ChromaDB with `session_id` and `user_id` metadata. Retrieval filters by session scope, enabling multi-document conversations within sessions while maintaining isolation between users and sessions.
-
-3. **Agentic Tool-Calling Loop**: AI can call tools (search documents, generate quizzes, create study guides, Mermaid diagrams) through a multi-round loop in `AIService.chat_with_tools()`. Tools are defined in `tools.py` and executed via `ToolExecutor`.
-
-4. **Long-Term Memory**: `MemoryService` in `rag_service.py` stores user feedback (thumbs up/down) as context that influences future responses.
-
-5. **Celery for Async Indexing**: Heavy document processing happens in Celery tasks to avoid blocking HTTP requests. Redis is used as the broker.
-
-### Frontend Architecture
-
-React 19 with Material-UI 7 using a context-based state management pattern:
+The AI system runs a **multi-round tool-calling loop** (max 5 rounds):
 
 ```
-frontend/src/
-├── contexts/
-│   ├── ChatContext.js          # Chat messages, send logic, artifacts
-│   ├── FileContext.js          # File uploads, document indexing
-│   ├── AuthContext.js          # JWT auth state
-│   ├── PersonaContext.js       # AI persona selection
-│   └── AnnotationContext.js    # PDF highlights/annotations
-├── components/
-│   ├── ChatPanel.js            # Main chat interface
-│   ├── PdfViewer.js            # react-pdf with selection toolbar
-│   ├── ArtifactPanel.js        # Structured outputs (quizzes, diagrams)
-│   ├── LeftDrawer.js           # Session history sidebar
-│   └── CommandPalette.js       # Keyboard shortcuts
-├── pages/
-│   ├── MainLayout.js           # Responsive bento grid layout
-│   ├── LoginPage.js
-│   └── SettingsContent.js
-├── api/
-│   ├── sessions.js             # Session CRUD API calls
-│   └── general.js              # Chat, upload, TTS API calls
-└── theme/
-    └── academicTheme.js        # MUI theme with dark mode
+User message
+  ↓
+AIService.chat_with_tools()
+  ↓
+[Round 1] Send message + system prompt + RAG context to Poe model
+  ↓
+Model may return tool_call(s):
+  • search_documents   → RAG vector search (ChromaDB)
+  • generate_quiz      → JSON quiz artifact
+  • create_study_guide → Structured outline artifact
+  • generate_diagram   → Mermaid.js diagram artifact
+  ↓
+ToolExecutor.execute() runs each tool
+  ↓
+Results injected back into conversation
+  ↓
+[Round N] Model produces final text response
+  ↓
+SSE stream → frontend ChatContext → chat bubble
 ```
 
-**State Flow:**
-- `ChatContext` holds messages and artifacts, coordinates with `FileContext` for document indexing
-- `FileContext` handles uploads via UploadThing or direct upload, triggers backend indexing
-- `PersonaContext` manages AI persona selection (Academic, Professional, Casual, Einstein, Gen-Z, Sherlock)
-- All contexts use React Context API for global state (no Redux)
+### System Prompt Strategy
 
-### API Structure
+The system prompt instructs the model to:
+1. Prefer grounded answers from retrieved document chunks
+2. Cite sources using `[SRC:N]` marker syntax
+3. Use tool calls rather than hallucinating document content
+4. Wrap structured outputs (quiz, diagram) in `<artifact type="...">` tags
 
-All endpoints are defined in `backend/app.py`. Key patterns:
+### Artifacts
 
-- **JWT Auth**: Most endpoints use `@jwt_required` decorator from `auth.py`
-- **Rate Limiting**: Flask-Limiter with Redis backend for distributed rate limiting
-- **Session Ownership**: Endpoints validate that `session.user_id == current_user_id`
-- **Error Handling**: Consistent JSON error responses with status codes
+When the AI generates structured content it is stored as a JSON artifact alongside the `ChatMessage`:
 
-### Database Schema
+| `artifact_type` | Rendered by | Notes |
+|-----------------|-------------|-------|
+| `quiz` | `ArtifactPanel → QuizCard` | Interactive MCQ with scoring |
+| `visualization` / `mermaid` | `ArtifactPanel → MermaidDiagram` | Mermaid.js diagram |
+| `study-guide` | `ArtifactPanel → fallback pre` | Hierarchical outline |
 
-SQLAlchemy models in `backend/models.py`:
+> Flashcard artifact type has been removed from the frontend renderer.
 
-- `User`: email, password_hash, created_at
-- `StudySession`: user_id, title, created_at, updated_at
-- `SessionDocument`: session_id, filename, file_url, indexed (boolean)
-- `ChatMessage`: session_id, role (user/assistant), content, sources (JSON), artifacts (JSON), feedback (thumbs up/down)
+---
 
-### ChromaDB Collections
+## 3. Streaming (SSE)
 
-Single collection `document_chunks` with metadata filtering:
-- `document_id`: UUID per document
-- `session_id`: UUID per study session
-- `user_id`: integer
-- `pages`: JSON array of page numbers for chunk
+Responses stream token-by-token:
 
-Retrieval filters by `session_id` and optionally `document_id`.
-
-## Important Patterns
-
-### AI Service Tool-Calling Flow
-
-1. User sends message → `POST /sessions/<id>/messages`
-2. Backend calls `AIService.chat_with_tools()`
-3. AI returns tool calls (e.g., `search_documents`)
-4. `ToolExecutor.execute()` runs tools against RAG/file services
-5. Tool results fed back to AI for final response
-6. Loop up to 5 rounds max to prevent infinite loops
-7. Response saved with sources and artifacts
-
-### Persona System
-
-6 AI personas with distinct system prompts, greetings, and TTS voices:
-- academic (alloy), professional (onyx), casual (echo)
-- einstein (fable), gen-z (shimmer), sherlock (onyx)
-
-Persona prompts defined in `ai_service.py:PERSONAS`. Frontend allows switching via dropdown.
-
-### Artifacts System
-
-Structured outputs rendered in separate panel:
-- `type: "quiz"` → Multiple choice questions
-- `type: "study-guide"` → Hierarchical outline
-- `type: "diagram"` → Mermaid diagram (rendered with mermaid.js)
-
-AI marks artifacts with `<artifact type="...">` tags in Markdown. Frontend extracts and renders in `ArtifactPanel.js`.
-
-### File Processing Pipeline
-
-1. Upload → UploadThing CDN or direct to backend/uploads
-2. Extract text:
-   - PDF: pdfplumber → fallback to PyMuPDF
-   - DOCX: python-docx
-   - Images: pytesseract OCR
-   - Audio: OpenAI Whisper transcription
-3. Chunking: Recursive character splitter (500 char chunks, 50 overlap)
-4. Embedding: LangChain embeddings (Gemini or OpenAI)
-5. Index to ChromaDB with metadata
-
-All in `file_service.py` and triggered by `POST /sessions/<id>/documents`.
-
-## Environment Variables
-
-**Required (at least one):**
-- `GOOGLE_API_KEY` or `OPENAI_API_KEY`
-
-**Recommended:**
-- `JWT_SECRET` — Secret for JWT signing
-- `AI_PROVIDER` — Force `gemini` or `openai` (auto-detects if unset)
-
-**Optional:**
-- `FLASK_PORT` — Backend port (default: 5000)
-- `NUM_RETRIEVAL_CHUNKS` — RAG chunks per query (default: 5)
-- `DEEP_THINK_CHUNKS` — RAG chunks for "deep think" mode (default: 12)
-- `REDIS_URL` — Redis connection string for Celery/rate limiting
-- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET` — S3 uploads
-- `S3_ENABLED` — Enable S3 storage (default: false)
-- `PII_MASKING_ENABLED` — Mask PII in logs (default: true)
-- `UPLOADTHING_TOKEN` — UploadThing API token for cloud uploads
-
-## MCP Server (Model Context Protocol)
-
-Standalone server exposing FileGeek tools to Claude Desktop:
-
-```bash
-cd backend
-python -m mcp.server
-```
-
-Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "filegeek": {
-      "command": "python",
-      "args": ["-m", "mcp.server"],
-      "cwd": "/path/to/FileGeek-Main/backend"
-    }
-  }
-}
-```
-
-Tools exposed: `search_documents`, `generate_quiz`, `create_study_guide`, `generate_diagram`.
-
-## Deployment
-
-- **Frontend**: Vercel (auto-builds from `frontend/`, uses nginx in Docker)
-- **Backend**: Render (uses `Dockerfile` with gunicorn)
-- **Redis**: Docker Compose or managed service (Redis Cloud)
-- **ChromaDB**: Persisted to `backend/chroma_data/` volume
-
-Production Dockerfile runs:
-```bash
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
-```
-
-## Common Gotchas
-
-1. **ChromaDB Permissions**: `chroma_data/` must be writable. Docker volumes handle this automatically.
-
-2. **AI Provider Switching**: When switching from Gemini to OpenAI (or vice versa), embeddings are incompatible. Existing ChromaDB indices will break. Clear `chroma_data/` when switching providers.
-
-3. **JWT Secret**: Must match between backend and uploadthing-server for file upload auth.
-
-4. **CORS**: `config.py:CORS_ORIGINS` must include frontend URL. Update for new deployments.
-
-5. **React PDF Worker**: `pdfjs-dist` requires worker file in `public/`. Already configured in `PdfViewer.js`.
-
-6. **Tool-Calling Format**: OpenAI uses `tools` array, Gemini uses `function_declarations`. `ai_service.py` handles conversion.
-
-7. **Celery Worker**: Must run separately in production. Docker Compose handles this with `celery-worker` service.
-
-## Testing
-
-- Backend: `python test_app.py` (basic endpoint tests)
-- Frontend: `npm test` (Jest + React Testing Library)
-- No comprehensive test suite exists yet
-
-When writing new features, prioritize integration tests over unit tests due to the service-oriented architecture and cross-cutting concerns (auth, RAG, AI calls).
-
-## Recent Improvements (February 2026)
-
-### Performance Optimizations
-
-**Memoization** (60-70% faster rendering):
-- `LazyThumbnail`: React.memo() with custom comparator, reduced rootMargin to 100px
-- `HighlightLayer`: React.memo() prevents re-render unless pageNum/scale changes  
-- `ChatMessage`: useMemo() for DOMPurify sanitize, React.memo() with message comparison
-
-**Code-Splitting** (150KB+ bundle reduction):
-- `MarkdownRenderer`: Lazy-loaded with React.lazy() and Suspense
-- Mermaid already lazy-loaded via dynamic import
-- Total bundle reduced from ~600KB to ~405KB
-
-**State Optimization**:
-- ChatContext localStorage writes debounced (500ms) to reduce I/O thrashing
-- Prevents excessive writes during rapid message updates
-
-### Interactive Study Tools
-
-**Quiz System** (`generate_quiz` tool):
-- Full interactive UI with click-to-select answers
-- Visual feedback (yellow=selected, green=correct, red=incorrect)
-- Score calculation with percentage and rating
-- Retry functionality to reset quiz
-- QuizResult model for future analytics tracking
-
-**Flashcard System** (`generate_flashcards` tool):
-- 3D flip animation using CSS perspective transforms
-- Spaced repetition with SM-2 algorithm
-- Progress persistence via API (FlashcardProgress model)
-- Three status levels: remaining/reviewing/known
-- Automatic interval calculation based on knowledge level
-- Graceful degradation for anonymous users
-
-### Database Changes
-
-**New Models**:
-1. `QuizResult` (backend/models.py:111): Tracks quiz scores and attempts
-2. `FlashcardProgress` (backend/models.py:141): SM-2 spaced repetition data
-
-**Migration Required**:
-```bash
-cd backend
-flask db migrate -m "Add QuizResult and FlashcardProgress models"
-flask db upgrade
-```
-
-**New API Endpoints**:
-- `POST /flashcards/progress`: Save flashcard review status
-- `GET /flashcards/progress/:sessionId/:messageId`: Load progress
-
-### Component Structure
-
-**ArtifactPanel Changes**:
-- `QuizCard`: Interactive quiz with state management (lines 33-224)
-- `FlashcardComponent`: Flip cards with API persistence (lines 229-574)
-- Both components use local state + optional API sync
-
-**React Hooks Best Practices**:
-- All hooks called before early returns (fixes rules-of-hooks violations)
-- Conditional rendering after hooks to prevent re-order issues
-
-### Documentation
-
-**New Docs**:
-- `docs/QUIZ_SYSTEM.md`: Complete quiz usage and API reference
-- `docs/FLASHCARD_SYSTEM.md`: Flashcard system with SM-2 explanation
-- `IMPLEMENTATION_SUMMARY.md`: Comprehensive implementation guide
-- `TESTING_RESULTS.md`: Full test results and status
-
-### Performance Targets Achieved
-
-- ✅ Bundle size reduced by 200KB+ (33% improvement)
-- ✅ Rendering speed improved 50-70% through memoization
-- ✅ localStorage thrashing eliminated with debouncing
-- ✅ Code-splitting for on-demand loading
-
-### Known Patterns
-
-**Tool-Calling for Study Features**:
+**Backend** (`main.py`):
 ```python
-# Quiz generation
-{
-  "name": "generate_quiz",
-  "arguments": {
-    "topic": "machine learning",
-    "num_questions": 5
-  }
-}
+async def stream_response():
+    async for chunk in poe_client.stream(model, messages):
+        yield f"data: {json.dumps({'content': chunk})}\n\n"
+return StreamingResponse(stream_response(), media_type="text/event-stream")
+```
 
-# Flashcard generation  
-{
-  "name": "generate_flashcards",
-  "arguments": {
-    "topic": "photosynthesis",
-    "num_cards": 10,
-    "card_type": "mixed"
-  }
+**Frontend** (`api/sessions.js → sendSessionMessage()`):
+```js
+const reader = response.body.getReader();
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  onChunk(parseChunk(value)); // updates ChatContext.streamingContent
 }
 ```
 
-**Artifact Structure**:
-- All artifacts include `artifact_type` field
-- Quiz/Flashcard artifacts include `message_id` for progress tracking
-- Frontend parses JSON from `content` field
+The user can cancel mid-stream via the stop button; `stopGeneration` ref in `ChatContext` signals the reader to abort.
 
-**Spaced Repetition Algorithm**:
-- Initial: ease_factor=2.5, interval_days=1
-- "Known": ease_factor +0.1, interval *= ease_factor
-- "Reviewing": interval reset to 1 day
-- "Remaining": reset to initial state
+---
 
-### Troubleshooting New Features
+## 4. RAG Integration
 
-**Quiz not generating?**
-- Ensure prompt includes "quiz" keyword
-- Check RAG has indexed document chunks
-- Verify AI provider is responding
+Every chat request is augmented with relevant document chunks before being sent to the Poe model.
 
-**Flashcards not persisting?**
-- Check user is logged in (JWT token present)
-- Verify session ownership
-- Check API endpoints return 200 OK
-- Anonymous users won't persist (expected behavior)
+**Retrieval flow:**
+1. `rag_service.query_async(query, session_id)` fetches top-N chunks from ChromaDB
+2. Chunks are prepended to the message as a `<context>` block in the system prompt
+3. The model cites chunks using `[SRC:N]` markers; the frontend renders these as clickable source chips that navigate the PDF to the referenced page
 
-**Build errors?**
-- Ensure React Hooks called before early returns
-- Check for unused variables (ESLint warnings)
-- Run `npm run build` to verify
+**Indexing:**
+- Triggered by `POST /sessions/{id}/documents`
+- Runs in a Celery task (`tasks/document_tasks.py`)
+- Progress emitted via Socket.IO (`task:{task_id}` room)
+- Client (`hooks/useDocumentIndexing.js`) subscribes and shows an indexing progress indicator
 
-### Git History (Recent)
+---
 
-```
-6ba239c - Fix: Resolve React Hooks rules violations
-f9a0483 - Docs: Add implementation summary and update README
-b07cbc9 - Feature: Add flashcard persistence with spaced repetition API
-9368308 - Feature: Add flashcard system with spaced repetition
-4e26565 - Feature: Add interactive quiz system with scoring and retry
-c6c34fc - Perf: Debounce ChatContext localStorage writes
-476dcbb - Perf: Optimize ChatMessage and code-split Markdown for 150KB
-9990ee5 - Perf: Memoize HighlightLayer for 40% faster annotations
-0f2f070 - Perf: Memoize LazyThumbnail for 60% faster rendering
-```
+## 5. Response Style
+
+Users can set a **Response Style** preference in Settings (Concise / Balanced / Detailed).
+
+- Stored as `filegeek-response-style` in localStorage
+- Should be sent as a hint in the request body and injected into the system prompt
+- Suggested prompt suffixes:
+  - **Concise**: "Be brief. Answer in 2–3 sentences unless the question requires more."
+  - **Balanced**: (default, no suffix)
+  - **Detailed**: "Provide a thorough, well-structured answer with examples where relevant."
+
+---
+
+## 6. Workflows (via CommandPalette)
+
+Two structured workflows alter the AI's behavior beyond the default Q&A mode:
+
+| Workflow | Trigger | Behavior |
+|----------|---------|----------|
+| **Socratic** | ⌘K → WORKFLOWS | AI asks guiding questions rather than giving direct answers; forces active recall |
+| **Podcast** | ⌘K → WORKFLOWS | AI adopts a conversational host style; summarizes document as an engaging monologue |
+
+These inject a workflow-specific system prompt prefix into `chat_with_tools()`.
+
+---
+
+## 7. Adding a New Model (e.g. Claude 3.7)
+
+1. Add an entry to `MODELS` in `frontend/src/components/ModelSelector.js`:
+   ```js
+   {
+     id: 'claude-3-7-sonnet',
+     name: 'Claude 3.7 Sonnet',
+     provider: 'anthropic',
+     description: 'Fast, precise reasoning',
+     badge: 'CLAUDE',
+   }
+   ```
+2. Add a badge color entry to the `badgeColor` map in `ModelSelector.js`:
+   ```js
+   CLAUDE: { bg: 'rgba(215,147,72,0.08)', border: 'rgba(215,147,72,0.4)', color: '#D79348' },
+   ```
+3. Verify the Poe bot name matches the `id` field exactly (Poe uses bot names, not API model IDs)
+4. No backend changes needed — the model ID is forwarded transparently via `X-Poe-Chat-Model`
+
+---
+
+## 8. Environment Variables (AI-Related)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `POE_API_KEY` | Yes | Server-side fallback key if no user key supplied via header |
+| `POE_CHAT_MODEL` | No | Default model ID (default: `grok-3`) |
+| `POE_RESPONSE_MODEL` | No | Override for non-streaming responses |
+| `NUM_RETRIEVAL_CHUNKS` | No | RAG chunks per query (default: 5) |
+| `DEEP_THINK_CHUNKS` | No | RAG chunks in deep-think mode (default: 12) |

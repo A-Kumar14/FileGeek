@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Box, Drawer, Typography, IconButton, Tooltip,
   List, ListItemButton, ListItemIcon, ListItemText, Divider, InputBase,
@@ -12,12 +12,16 @@ import SearchIcon from '@mui/icons-material/Search';
 import SettingsIcon from '@mui/icons-material/Settings';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
+import LanguageIcon from '@mui/icons-material/Language';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import ViewSidebarOutlinedIcon from '@mui/icons-material/ViewSidebarOutlined';
 
 import { useAuth } from '../contexts/AuthContext';
 import { useFile } from '../contexts/FileContext';
 import { useChatContext } from '../contexts/ChatContext';
 import { useNavigate } from 'react-router-dom';
+import LibraryPopout from './LibraryPopout';
+import FilesPopout from './FilesPopout';
 
 const NAV_ITEMS = [
   { key: 'explore', label: 'Explore', icon: ExploreIcon },
@@ -49,9 +53,13 @@ const GROUP_ORDER = ['Today', 'Yesterday', 'Past 7 days', 'Older'];
 function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
   const { logout, user } = useAuth();
   const { removeFile } = useFile();
-  const { clearMessages, chatSessions, activeSessionId, loadSession } = useChatContext();
+  const { clearMessages, chatSessions, activeSessionId, loadSession, removeSession } = useChatContext();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [historyHighlighted, setHistoryHighlighted] = useState(false);
+  const historyRef = useRef(null);
 
   const initials = user?.name
     ? user.name.split(' ').map((p) => p[0]).join('').toUpperCase().slice(0, 2)
@@ -83,14 +91,31 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
 
   const grouped = useMemo(() => groupByDate(filtered), [filtered]);
 
+  const handleNavClick = (key) => {
+    if (key === 'explore') {
+      navigate('/explore');
+      if (onClose) onClose();
+    } else if (key === 'library') {
+      setLibraryOpen(true);
+      if (onClose && collapsed) onClose();
+    } else if (key === 'files') {
+      setFilesOpen(true);
+      if (onClose && collapsed) onClose();
+    } else if (key === 'history') {
+      setHistoryHighlighted(true);
+      setTimeout(() => setHistoryHighlighted(false), 1500);
+      if (historyRef.current) historyRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   const NavItem = ({ item }) => {
     const Icon = item.icon;
     const btn = (
-      <ListItemButton sx={{
-        borderRadius: '10px', mx: 0.75, mb: 0.25, minHeight: 38,
+      <ListItemButton onClick={() => handleNavClick(item.key)} sx={{
+        borderRadius: 0, mx: 0.25, mb: 0.25, minHeight: 36,
         px: collapsed ? 1.25 : 1.5,
         justifyContent: collapsed ? 'center' : 'flex-start',
-        '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
+        '&:hover': { bgcolor: 'var(--accent-dim)', borderLeft: '2px solid var(--accent)' },
       }}>
         <ListItemIcon sx={{ minWidth: collapsed ? 'unset' : 32, color: 'var(--fg-secondary)' }}>
           <Icon sx={{ fontSize: 18 }} />
@@ -195,9 +220,9 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
             <Box sx={{
               fontSize: '0.58rem', fontWeight: 700, color: 'var(--fg-dim)',
               border: '1px solid var(--border)', borderRadius: '5px',
-              px: 0.5, py: 0.1, flexShrink: 0, lineHeight: 1.4,
+              px: 0.5, py: 0.1, flexShrink: 0, lineHeight: 1.4, fontFamily: 'var(--font-family)'
             }}>
-              ⌘
+              ⌘K
             </Box>
           </Box>
         </Box>
@@ -211,7 +236,15 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
       <Divider sx={{ mx: 1.5, my: 0.75, borderColor: 'var(--border)' }} />
 
       {/* ── Date-grouped chat history ── */}
-      <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', minHeight: 0 }}>
+      <Box
+        ref={historyRef}
+        sx={{
+          flex: 1, overflowY: 'auto', overflowX: 'hidden', minHeight: 0,
+          borderRadius: '8px',
+          outline: historyHighlighted ? '2px solid var(--accent)' : '2px solid transparent',
+          transition: 'outline 0.2s ease',
+        }}
+      >
         {GROUP_ORDER.map((label) => {
           const items = grouped[label];
           if (!items || items.length === 0) return null;
@@ -229,6 +262,8 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
               {items.slice(0, 25).map((session) => {
                 const isActive = session.id === activeSessionId;
                 const title = session.title || 'Untitled chat';
+                const isExplore = session.session_type === 'explore';
+                const SessionIcon = isExplore ? LanguageIcon : ChatBubbleOutlineIcon;
                 const btn = (
                   <ListItemButton
                     key={session.id}
@@ -239,23 +274,53 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
                       px: collapsed ? 1.25 : 1.5,
                       justifyContent: collapsed ? 'center' : 'flex-start',
                       bgcolor: isActive ? 'rgba(0,0,0,0.06)' : 'transparent',
-                      '&:hover': { bgcolor: 'rgba(0,0,0,0.05)' },
+                      '&:hover': {
+                        bgcolor: 'rgba(0,0,0,0.05)',
+                        '& .session-delete-btn': { opacity: 1 },
+                      },
                       transition: 'background 0.12s',
+                      position: 'relative',
                     }}
                   >
-                    <ListItemIcon sx={{ minWidth: collapsed ? 'unset' : 26, color: 'var(--fg-dim)' }}>
-                      <ChatBubbleOutlineIcon sx={{ fontSize: 13 }} />
+                    <ListItemIcon sx={{ minWidth: collapsed ? 'unset' : 26, color: isExplore ? 'var(--accent)' : 'var(--fg-dim)' }}>
+                      <SessionIcon sx={{ fontSize: 13 }} />
                     </ListItemIcon>
                     {!collapsed && (
-                      <ListItemText
-                        primary={title}
-                        primaryTypographyProps={{
-                          fontSize: '0.8rem',
-                          fontWeight: isActive ? 500 : 400,
-                          color: isActive ? 'var(--fg-primary)' : 'var(--fg-secondary)',
-                          noWrap: true,
-                        }}
-                      />
+                      <>
+                        <ListItemText
+                          primary={title}
+                          primaryTypographyProps={{
+                            fontSize: '0.8rem',
+                            fontWeight: isActive ? 500 : 400,
+                            color: isActive ? 'var(--fg-primary)' : 'var(--fg-secondary)',
+                            noWrap: true,
+                          }}
+                        />
+                        <Tooltip title="Delete session">
+                          <Box
+                            className="session-delete-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm('Delete this session? This will also remove indexed document chunks.')) {
+                                removeSession(session.id);
+                              }
+                            }}
+                            sx={{
+                              opacity: 0,
+                              transition: 'opacity 0.15s',
+                              flexShrink: 0,
+                              color: 'var(--fg-dim)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              borderRadius: '6px',
+                              p: '2px',
+                              '&:hover': { color: 'var(--error)', bgcolor: 'rgba(220,38,38,0.08)' },
+                            }}
+                          >
+                            <DeleteOutlineIcon sx={{ fontSize: 14 }} />
+                          </Box>
+                        </Tooltip>
+                      </>
                     )}
                   </ListItemButton>
                 );
@@ -346,6 +411,10 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
           )}
         </Box>
       </Box>
+
+      {/* Popouts */}
+      <LibraryPopout open={libraryOpen} onClose={() => setLibraryOpen(false)} />
+      <FilesPopout open={filesOpen} onClose={() => setFilesOpen(false)} />
     </Box>
   );
 }

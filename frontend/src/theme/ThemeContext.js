@@ -33,7 +33,7 @@ function applyVars(map) {
 }
 
 // Version stamp — bump this when we need to force-reset theme preferences
-const UI_VERSION = '4';
+const UI_VERSION = '6';
 
 export function ThemeProviderWrapper({ children }) {
   const [themeName, setThemeName] = useState(() => {

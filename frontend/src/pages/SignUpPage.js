@@ -3,6 +3,25 @@ import { Container, TextField, Button, Typography, Box } from '@mui/material';
 import { useNavigate, Navigate, Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
+const fieldSx = {
+  '& .MuiOutlinedInput-root': {
+    bgcolor: 'var(--bg-secondary)',
+    color: 'var(--fg-primary)',
+    fontSize: '0.88rem',
+    borderRadius: '10px',
+    fontFamily: 'var(--font-family)',
+    '& fieldset': { borderColor: 'var(--border)' },
+    '&:hover fieldset': { borderColor: 'var(--accent)' },
+    '&.Mui-focused fieldset': { borderColor: 'var(--accent)', borderWidth: '1px' },
+    '& input:-webkit-autofill, & input:-webkit-autofill:hover, & input:-webkit-autofill:focus': {
+      WebkitBoxShadow: '0 0 0 100px var(--bg-secondary) inset',
+      WebkitTextFillColor: 'var(--fg-primary)',
+    },
+  },
+  '& .MuiInputBase-input::placeholder': { color: 'var(--fg-dim)', opacity: 1 },
+  mb: 1.5,
+};
+
 export default function SignUpPage() {
   const navigate = useNavigate();
   const { signup, isAuthenticated } = useAuth();
@@ -18,9 +37,8 @@ export default function SignUpPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-
     if (!name.trim() || !email.trim() || !password.trim()) {
-      setError('Please fill in all fields.');
+      setError('Fill in all fields.');
       return;
     }
     if (password !== confirmPassword) {
@@ -31,106 +49,78 @@ export default function SignUpPage() {
       setError('Password must be at least 6 characters.');
       return;
     }
-
     setLoading(true);
     try {
       await signup(name, email, password);
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err.message || 'Sign up failed. Please try again.');
+      setError(err.message || 'Sign up failed.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        bgcolor: '#000000',
-      }}
-    >
+    <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'var(--bg-primary)' }}>
       <Container maxWidth="xs">
-        <Box
-          sx={{
-            p: 4,
-            border: '1px solid #333333',
-            bgcolor: '#0D0D0D',
-          }}
-        >
-          <Box sx={{ textAlign: 'center', mb: 3 }}>
-            <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.5rem', color: '#00FF00', letterSpacing: '0.1em' }}>
-              FileGeek
-            </Typography>
-            <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#888', mt: 0.5 }}>
-              Create your account
+        <Box sx={{ p: 4, bgcolor: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '16px' }}>
+
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <Box sx={{ width: 28, height: 28, borderRadius: '8px', bgcolor: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Typography sx={{ fontSize: '14px', color: '#FFF', fontWeight: 700, lineHeight: 1 }}>F</Typography>
+              </Box>
+              <Typography sx={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--fg-primary)', fontFamily: 'var(--font-family)' }}>
+                FileGeek
+              </Typography>
+            </Box>
+            <Typography sx={{ fontWeight: 600, fontSize: '1.4rem', color: 'var(--fg-primary)', fontFamily: 'var(--font-family)' }}>
+              Create account
             </Typography>
           </Box>
 
           {error && (
-            <Box sx={{ border: '1px solid #FF0000', p: 1, mb: 2 }}>
-              <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#FF0000' }}>
-                ERROR: {error}
+            <Box sx={{ border: '1px solid var(--error)', bgcolor: 'rgba(220,38,38,0.05)', px: 1.5, py: 1, mb: 2, borderRadius: '8px' }}>
+              <Typography sx={{ fontSize: '0.78rem', color: 'var(--error)', fontFamily: 'var(--font-family)' }}>
+                {error}
               </Typography>
             </Box>
           )}
 
           <Box component="form" onSubmit={handleSubmit}>
-            <TextField
-              fullWidth label="NAME" value={name}
-              onChange={(e) => setName(e.target.value)}
-              sx={{ mb: 2 }} autoFocus
-              InputLabelProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-            />
-            <TextField
-              fullWidth label="EMAIL" type="email" value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              sx={{ mb: 2 }}
-              InputLabelProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-            />
-            <TextField
-              fullWidth label="PASSWORD" type="password" value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              sx={{ mb: 2 }}
-              InputLabelProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-            />
-            <TextField
-              fullWidth label="CONFIRM_PASSWORD" type="password" value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              sx={{ mb: 3 }}
-              InputLabelProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-            />
-            <Button
-              fullWidth variant="contained" type="submit" disabled={loading}
+            <TextField fullWidth placeholder="Name" value={name}
+              onChange={(e) => setName(e.target.value)} sx={fieldSx} autoFocus autoComplete="name" />
+            <TextField fullWidth placeholder="Email" type="email" value={email}
+              onChange={(e) => setEmail(e.target.value)} sx={fieldSx} autoComplete="email" />
+            <TextField fullWidth placeholder="Password" type="password" value={password}
+              onChange={(e) => setPassword(e.target.value)} sx={fieldSx} autoComplete="new-password" />
+            <TextField fullWidth placeholder="Confirm password" type="password" value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)} sx={{ ...fieldSx, mb: 2 }} autoComplete="new-password" />
+
+            <Button fullWidth variant="contained" type="submit" disabled={loading} disableElevation
               sx={{
-                py: 1.2,
-                bgcolor: '#E5E5E5',
-                color: '#000',
-                fontFamily: 'monospace',
-                fontWeight: 700,
-                '&:hover': { bgcolor: '#FFFFFF' },
-                '&.Mui-disabled': { bgcolor: '#333', color: '#888' },
+                py: 1.15, borderRadius: '10px', bgcolor: 'var(--accent)',
+                fontFamily: 'var(--font-family)', fontWeight: 600, fontSize: '0.88rem',
+                textTransform: 'none',
+                '&:hover': { bgcolor: 'var(--accent)', opacity: 0.88 },
+                '&.Mui-disabled': { bgcolor: 'var(--accent-dim)', color: 'var(--accent)' },
               }}
             >
-              {loading ? '[ CREATING... ]' : '[ SIGN UP ]'}
+              {loading ? 'Creating account...' : 'Create account'}
             </Button>
           </Box>
 
-          <Box sx={{ textAlign: 'center', mt: 2 }}>
-            <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#888' }}>
+          <Box sx={{ textAlign: 'center', mt: 2.5 }}>
+            <Typography sx={{ fontSize: '0.8rem', color: 'var(--fg-dim)', fontFamily: 'var(--font-family)' }}>
               Have an account?{' '}
-              <Typography
-                component={RouterLink}
-                to="/login"
-                sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#00FF00', textDecoration: 'none', fontWeight: 700 }}
+              <Typography component={RouterLink} to="/login"
+                sx={{ fontSize: '0.8rem', color: 'var(--accent)', textDecoration: 'none', fontWeight: 600, '&:hover': { textDecoration: 'underline' } }}
               >
-                [ SIGN IN ]
+                Sign in
               </Typography>
             </Typography>
           </Box>
+
         </Box>
       </Container>
     </Box>

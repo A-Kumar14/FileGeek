@@ -13,7 +13,6 @@ import {
   Search,
   Settings,
   Home,
-  User,
   FileText,
   FileQuestion,
   Trash2,
@@ -32,7 +31,6 @@ import {
   GraduationCap,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { usePersona } from '../contexts/PersonaContext';
 import { useFile } from '../contexts/FileContext';
 import { useChatContext } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -49,12 +47,10 @@ export default function CommandPalette({ onOpenDashboard }) {
 
   const navigate = useNavigate();
   const { logout } = useAuth();
-  const { personas, selectPersona } = usePersona();
   const { file, files, activeFileIndex, setActiveFileIndex, removeFile, handleFileSelect } = useFile();
   const { sendMessage, clearMessages, clearAllSessions } = useChatContext();
   const { setTheme, setLayoutMode } = useThemeMode();
   const { selectedModel, setSelectedModel } = useModelContext();
-  const [socraticActive, setSocraticActive] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   useEffect(() => {
@@ -202,32 +198,8 @@ export default function CommandPalette({ onOpenDashboard }) {
       });
     }
 
-    // Add personas
-    personas.forEach((p) => {
-      cmds.push({
-        id: `persona-${p.id}`,
-        label: `SWITCH_TO_${p.label.toUpperCase().replace(/\s+/g, '_')}`,
-        icon: <User className="w-4 h-4" />,
-        category: 'PERSONAS',
-        action: () => selectPersona(p.id),
-        priority: 50,
-      });
-    });
-
     // ── WORKFLOWS ─────────────────────────────────────────────────────────────
     cmds.push(
-      {
-        id: 'socratic-toggle',
-        label: socraticActive ? 'DISABLE_SOCRATIC_MODE' : 'ENABLE_SOCRATIC_MODE',
-        icon: <GraduationCap className="w-4 h-4" />,
-        category: 'WORKFLOWS',
-        action: () => {
-          const next = !socraticActive;
-          setSocraticActive(next);
-          selectPersona(next ? 'socratic' : 'academic');
-        },
-        priority: 85,
-      },
       {
         id: 'podcast',
         label: 'GENERATE_PODCAST_SCRIPT',
@@ -341,7 +313,7 @@ export default function CommandPalette({ onOpenDashboard }) {
     );
 
     return cmds;
-  }, [file, files, activeFileIndex, personas, navigate, removeFile, clearMessages, clearAllSessions, sendMessage, selectPersona, setActiveFileIndex, handleLogout, setTheme, setLayoutMode, onOpenDashboard, socraticActive, selectedModel, setSelectedModel]);
+  }, [file, files, activeFileIndex, navigate, removeFile, clearMessages, clearAllSessions, sendMessage, setActiveFileIndex, handleLogout, setTheme, setLayoutMode, onOpenDashboard, selectedModel, setSelectedModel]);
 
   const filtered = useMemo(() => {
     const trimmed = query.trim();
@@ -456,7 +428,7 @@ export default function CommandPalette({ onOpenDashboard }) {
           <Search className="w-4 h-4 text-mono-dim" />
           <InputBase
             inputRef={inputRef}
-            placeholder="Search commands, files, personas..."
+            placeholder="Search commands, files..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -469,7 +441,7 @@ export default function CommandPalette({ onOpenDashboard }) {
               '& input::placeholder': { color: 'var(--fg-dim)', opacity: 1 },
             }}
           />
-          <Typography sx={{ fontSize: '0.65rem', color: 'var(--fg-dim)', border: '1px solid var(--border)', borderRadius: '8px', px: 0.75, py: 0.25 }}>
+          <Typography sx={{ fontSize: '0.65rem', color: 'var(--fg-dim)', border: '1px solid var(--border)', borderRadius: '8px', px: 0.75, py: 0.25, fontFamily: 'monospace' }}>
             {navigator.platform?.includes('Mac') ? '⌘K' : 'Ctrl+K'}
           </Typography>
         </Box>

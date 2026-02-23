@@ -106,16 +106,20 @@ class GeminiV1Embeddings(LCEmbeddings):
         return resp.json()["embedding"]["values"]
 
 
-if _provider == "gemini":
+if _provider == "poe":
+    AI_PROVIDER = "poe"
+elif _provider == "gemini":
     AI_PROVIDER = "gemini"
 elif _provider == "openai":
     AI_PROVIDER = "openai"
+elif os.getenv("POE_API_KEY"):
+    AI_PROVIDER = "poe"
 elif os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"):
     AI_PROVIDER = "gemini"
 elif os.getenv("OPENAI_API_KEY"):
     AI_PROVIDER = "openai"
 else:
-    AI_PROVIDER = "gemini"  # default
+    AI_PROVIDER = "poe"  # default to poe
 
 logger.info(f"AI provider: {AI_PROVIDER}")
 
@@ -125,121 +129,20 @@ OpenAI = None
 
 if AI_PROVIDER == "gemini":
     import google.generativeai as genai  # noqa: F811
-elif AI_PROVIDER == "openai":
+elif AI_PROVIDER == "openai" or AI_PROVIDER == "poe":
     from openai import OpenAI  # noqa: F811
 
 
 
-# ── Persona definitions ────────────────────────────────────────────────
-
-PERSONAS = {
-    "academic": {
-        "label": "Academic Mentor",
-        "system": (
-            "You are FileGeek — a brilliant academic mentor who helps students deeply "
-            "understand their documents.\n"
-            "- Encouraging yet precise: celebrate good questions, never give vague answers\n"
-            "- Structured and clear: always use Markdown (headers, lists, bold, code blocks)\n"
-            "- Adaptive depth: concise for quick lookups; thorough with examples for concepts\n"
-            "- Render math/logic in LaTeX ($E = mc^2$, $\\neg$, $\\iff$)\n"
-            "- Simplify with real-world analogies when confusion is sensed\n"
-            "- Never fabricate — if info is absent from context, say so\n"
-            "- Use conversation history to gauge understanding and adapt"
-        ),
-        "greeting": "Hello! I'm your Academic Mentor. Upload a document and let's explore it together.",
-        "voice": "alloy",
-    },
-    "professional": {
-        "label": "Professional Analyst",
-        "system": (
-            "You are FileGeek — a professional document analyst.\n"
-            "- Direct and efficient: get to the point\n"
-            "- Use structured Markdown (headers, bullets, tables)\n"
-            "- Focus on actionable insights and key takeaways\n"
-            "- Formal, business-appropriate language\n"
-            "- Highlight risks, opportunities, and recommendations\n"
-            "- Never fabricate — say so if info is missing\n"
-            "- Executive-summary style when appropriate"
-        ),
-        "greeting": "Good day. I'm ready to analyze your documents with precision. Upload a file to begin.",
-        "voice": "onyx",
-    },
-    "casual": {
-        "label": "Casual Helper",
-        "system": (
-            "You are FileGeek — a friendly and approachable document helper.\n"
-            "- Conversational and easy-going, like explaining to a friend\n"
-            "- Simple language, avoid jargon\n"
-            "- Helpful analogies and relatable examples\n"
-            "- Encouraging and supportive\n"
-            "- Never fabricate — say so if info is missing\n"
-            "- Keep it concise unless asked for more"
-        ),
-        "greeting": "Hey there! Drop a file and ask me anything — I'll keep it simple.",
-        "voice": "shimmer",
-    },
-    "einstein": {
-        "label": "Albert Einstein",
-        "system": (
-            "You are FileGeek channeling the spirit of Albert Einstein.\n"
-            "- Professorial tone, slightly humorous, intellectually playful\n"
-            "- Frequently use physics metaphors and thought experiments\n"
-            '- Occasionally quote yourself: "Imagination is more important than knowledge."\n'
-            "- Explain complex ideas by relating them to space, time, and relativity\n"
-            "- Use LaTeX for any equations ($E = mc^2$, $F = ma$)\n"
-            "- Be warm and encouraging — knowledge should be a joyful pursuit\n"
-            "- Never fabricate — if info is absent, say so with a wry smile"
-        ),
-        "greeting": "Ah, willkommen! As I always say, the important thing is not to stop questioning. Show me your document!",
-        "voice": "echo",
-    },
-    "genz_tutor": {
-        "label": "Gen-Z Tutor",
-        "system": (
-            "You are FileGeek as a Gen-Z tutor — energetic, relatable, and modern.\n"
-            "- Use casual Gen-Z language naturally (no cap, lowkey, vibe, slay, etc.)\n"
-            "- Explain things with pop-culture references and memes\n"
-            "- Use emojis moderately to keep things engaging\n"
-            "- Break down hard concepts into bite-sized, TikTok-worthy explanations\n"
-            "- Be hype and encouraging — learning should be fire\n"
-            "- Still accurate — never fabricate info\n"
-            "- Use Markdown for structure but keep it fun"
-        ),
-        "greeting": "yooo welcome to FileGeek!! drop ur file and let's get this bread fr fr",
-        "voice": "nova",
-    },
-    "sherlock": {
-        "label": "Sherlock Holmes",
-        "system": (
-            "You are FileGeek channeling Sherlock Holmes — the world's greatest consulting detective.\n"
-            "- Analytical, deductive, and precise in reasoning\n"
-            "- Approach every document as a case to be solved\n"
-            "- Use deductive reasoning chains: 'observe -> deduce -> conclude'\n"
-            '- Occasionally reference Baker Street and Watson\n'
-            "- Dry British wit; slightly condescending but never unkind\n"
-            "- Never fabricate — when data is insufficient, say 'insufficient data for a conclusion'\n"
-            "- Use Markdown for structured deductions"
-        ),
-        "greeting": "The game is afoot! Present your document, and I shall deduce its every secret.",
-        "voice": "fable",
-    },
-    "socratic": {
-        "label": "Socratic Guide",
-        "system": (
-            "You are FileGeek in Socratic mode — a guide who never gives direct answers.\n"
-            "- NEVER state facts directly; always respond with a clarifying or probing question\n"
-            "- Lead the user to discover the answer themselves through a chain of questions\n"
-            "- Example: if asked 'What is mitosis?', respond with 'What do you already know about how cells reproduce?'\n"
-            "- After 3-4 exchanges on the same concept, offer a brief confirming statement\n"
-            "- Keep questions short, focused, and grounded in the uploaded document\n"
-            "- Use Markdown sparingly — conversations should feel like dialogue, not lectures\n"
-            "- Never fabricate — if info is absent from context, ask the user what they think instead\n"
-            "- Warmly celebrate when the user arrives at the correct answer"
-        ),
-        "greeting": "Welcome! Instead of telling you the answers, I'll help you find them yourself. What question are you wrestling with today?",
-        "voice": "alloy",
-    },
-}
+# ── Persona definitions (Removed, using default system prompt) ─────────
+DEFAULT_SYSTEM_PROMPT = (
+    "You are FileGeek — a brilliant analytical AI assistant who helps users deeply "
+    "understand their documents.\n"
+    "- Structured and clear: always use Markdown (headers, lists, bold, code blocks)\n"
+    "- Adaptive depth: concise for quick lookups; thorough with examples for concepts\n"
+    "- Math formatting: Always wrap mathematical variables, expressions, and formulas in $...$ for inline math and $$...$$ for block math. Do not use plain parentheses for math.\n"
+    "- Never fabricate — if info is absent from context, say so\n"
+)
 
 FILE_TYPE_MODIFIERS = {
     "pdf": "\nThe document is a PDF. Pay attention to page references and structure.",
@@ -251,35 +154,9 @@ FILE_TYPE_MODIFIERS = {
     ),
 }
 
-
-class PersonaManager:
-    """Central registry for persona definitions."""
-
-    @staticmethod
-    def get(name: str) -> dict:
-        return PERSONAS.get(name, PERSONAS["academic"])
-
-    @staticmethod
-    def list_all() -> list:
-        return [
-            {"id": k, "label": v["label"], "greeting": v["greeting"]}
-            for k, v in PERSONAS.items()
-        ]
-
-    @staticmethod
-    def system_prompt(persona: str = "academic", file_type: str = "pdf") -> str:
-        p = PERSONAS.get(persona, PERSONAS["academic"])
-        modifier = FILE_TYPE_MODIFIERS.get(file_type, "")
-        return p["system"] + modifier
-
-    @staticmethod
-    def voice_for(persona: str) -> str:
-        return PERSONAS.get(persona, PERSONAS["academic"]).get("voice", "alloy")
-
-
-def get_persona_prompt(persona: str = "academic", file_type: str = "pdf") -> str:
-    """Backward-compatible helper."""
-    return PersonaManager.system_prompt(persona, file_type)
+def get_system_prompt(file_type: str = "pdf") -> str:
+    modifier = FILE_TYPE_MODIFIERS.get(file_type, "")
+    return DEFAULT_SYSTEM_PROMPT + modifier
 
 
 # ── AI Service (dual-provider: Gemini + OpenAI) ────────────────────────
@@ -296,14 +173,25 @@ class AIService:
     GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
     GEMINI_EMBEDDING_API_VERSION = os.getenv("GEMINI_EMBEDDING_API_VERSION", "v1beta")
 
+    # Poe models (Default)
+    POE_CHAT_MODEL = os.getenv("POE_CHAT_MODEL", "grok-3")
+    POE_RESPONSE_MODEL = os.getenv("POE_RESPONSE_MODEL", "grok-3")
+
     # OpenAI models
     OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o")
     OPENAI_RESPONSE_MODEL = os.getenv("OPENAI_RESPONSE_MODEL", "gpt-4o")
     OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
     # Backward-compatible aliases
-    CHAT_MODEL = GEMINI_CHAT_MODEL if AI_PROVIDER == "gemini" else OPENAI_CHAT_MODEL
-    RESPONSE_MODEL = GEMINI_RESPONSE_MODEL if AI_PROVIDER == "gemini" else OPENAI_RESPONSE_MODEL
+    if AI_PROVIDER == "gemini":
+        CHAT_MODEL = GEMINI_CHAT_MODEL
+        RESPONSE_MODEL = GEMINI_RESPONSE_MODEL
+    elif AI_PROVIDER == "openai":
+        CHAT_MODEL = OPENAI_CHAT_MODEL
+        RESPONSE_MODEL = OPENAI_RESPONSE_MODEL
+    else:
+        CHAT_MODEL = POE_CHAT_MODEL
+        RESPONSE_MODEL = POE_RESPONSE_MODEL
 
     def __init__(self):
         self.provider = AI_PROVIDER
@@ -322,7 +210,7 @@ class AIService:
                     model=self.GEMINI_EMBEDDING_MODEL,
                     api_version=self.GEMINI_EMBEDDING_API_VERSION,
                 )
-        else:
+        elif self.provider == "openai":
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
                 logger.warning("OPENAI API key not found. Embeddings will fail if called.")
@@ -331,15 +219,38 @@ class AIService:
                     model=self.OPENAI_EMBEDDING_MODEL,
                     openai_api_key=api_key,
                 )
+        else:
+            # Poe does not natively expose an embeddings endpoint on api.poe.com right now
+            # We'll default to falling back to OpenAI or Gemini embeddings if keys are present
+            openai_key = os.getenv("OPENAI_API_KEY")
+            if openai_key:
+                self.embeddings = OpenAIEmbeddings(
+                    model=self.OPENAI_EMBEDDING_MODEL,
+                    openai_api_key=openai_key,
+                )
+            else:
+                logger.warning("No embedding provider available for Poe. Provide OPENAI_API_KEY for embeddings.")
+                self.embeddings = None
 
     @property
     def openai_client(self):
         if self._openai_client_instance is None:
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise ValueError("OPENAI_API_KEY environment variable is required to use OpenAI models.")
             from openai import OpenAI as _OpenAI
-            self._openai_client_instance = _OpenAI(api_key=api_key)
+            
+            if self.provider == "poe":
+                api_key = os.getenv("POE_API_KEY")
+                if not api_key:
+                    raise ValueError("POE_API_KEY environment variable is required to use Poe models.")
+                self._openai_client_instance = _OpenAI(
+                    base_url="https://api.poe.com/v1", 
+                    api_key=api_key
+                )
+            else:
+                api_key = os.getenv("OPENAI_API_KEY")
+                if not api_key:
+                    raise ValueError("OPENAI_API_KEY environment variable is required to use OpenAI models.")
+                self._openai_client_instance = _OpenAI(api_key=api_key)
+                
         return self._openai_client_instance
 
     @property
@@ -372,10 +283,14 @@ class AIService:
     ) -> Optional[str]:
         provider = self.provider
         if model_override:
+            # Check basic mappings
             if model_override.startswith("gpt") or model_override.startswith("o"):
-                provider = "openai"
+                # If using Poe, just pass the model straight to Poe, don't force provider swap
+                if self.provider != "poe":
+                    provider = "openai"
             elif model_override.startswith("gemini"):
-                provider = "gemini"
+                if self.provider != "poe":
+                    provider = "gemini"
             else:
                 logger.warning(f"Unmapped model_override '{model_override}', falling back to {provider}")
 
@@ -385,13 +300,13 @@ class AIService:
                 _ = self.gemini_client
                 return self._answer_gemini(
                     context_chunks, question, chat_history,
-                    model_override, persona, file_type, image_paths,
+                    model_override, file_type, image_paths,
                 )
             else:
                 _ = self.openai_client
                 return self._answer_openai(
                     context_chunks, question, chat_history,
-                    model_override, persona, file_type, image_paths,
+                    model_override, file_type, image_paths,
                 )
         except Exception as e:
             logger.error(f"Failed to use provider {provider}: {str(e)}. Falling back to default provider {self.provider}")
@@ -402,12 +317,12 @@ class AIService:
                     if self.provider == "gemini":
                         return self._answer_gemini(
                             context_chunks, question, chat_history,
-                            None, persona, file_type, image_paths, # Force default model
+                            None, file_type, image_paths, # Force default model
                         )
                     else:
                         return self._answer_openai(
                             context_chunks, question, chat_history,
-                            None, persona, file_type, image_paths,
+                            None, file_type, image_paths,
                         )
                 except Exception as fallback_e:
                     logger.error(f"Fallback generation failed: {str(fallback_e)}")
@@ -421,7 +336,6 @@ class AIService:
         question: str,
         chat_history: List[Dict],
         model_override: str = None,
-        persona: str = "academic",
         file_type: str = "pdf",
         image_paths: Optional[List[str]] = None,
     ) -> Optional[str]:
@@ -431,7 +345,7 @@ class AIService:
                 return None
 
             context = "\n\n---\n\n".join(context_chunks) if context_chunks else ""
-            system_instruction = PersonaManager.system_prompt(persona, file_type)
+            system_instruction = get_system_prompt(file_type)
             if model_override:
                 system_instruction += "\n\nThink step by step. Be thorough, exhaustive, and analytical."
 
@@ -496,7 +410,6 @@ class AIService:
         question: str,
         chat_history: List[Dict],
         model_override: str = None,
-        persona: str = "academic",
         file_type: str = "pdf",
         image_paths: Optional[List[str]] = None,
     ) -> Optional[str]:
@@ -506,7 +419,7 @@ class AIService:
                 return None
 
             context = "\n\n---\n\n".join(context_chunks) if context_chunks else ""
-            system_content = PersonaManager.system_prompt(persona, file_type)
+            system_content = get_system_prompt(file_type)
             if model_override:
                 system_content += "\n\nThink step by step. Be thorough, exhaustive, and analytical."
 
@@ -562,7 +475,6 @@ class AIService:
         tool_executor,
         session_id: str,
         user_id: int,
-        persona: str = "academic",
         file_type: str = "pdf",
         model_override: str = None,
         memory_context: str = "",
@@ -581,22 +493,22 @@ class AIService:
         if provider == "gemini":
             return self._agentic_gemini(
                 question, chat_history, tool_executor, session_id, user_id,
-                persona, file_type, model_override, memory_context, preference_context,
+                file_type, model_override, memory_context, preference_context,
             )
         else:
             return self._agentic_openai(
                 question, chat_history, tool_executor, session_id, user_id,
-                persona, file_type, model_override, memory_context, preference_context,
+                file_type, model_override, memory_context, preference_context,
             )
 
     def _agentic_openai(
         self, question, chat_history, tool_executor, session_id, user_id,
-        persona, file_type, model_override, memory_context, preference_context,
+        file_type, model_override, memory_context, preference_context,
     ) -> Dict:
         from services.tools import TOOL_DEFINITIONS
         import json
 
-        system_content = PersonaManager.system_prompt(persona, file_type)
+        system_content = get_system_prompt(file_type)
         if memory_context:
             system_content += f"\n\nBased on past sessions: {memory_context}"
         if preference_context:
@@ -717,12 +629,12 @@ class AIService:
 
     def _agentic_gemini(
         self, question, chat_history, tool_executor, session_id, user_id,
-        persona, file_type, model_override, memory_context, preference_context,
+        file_type, model_override, memory_context, preference_context,
     ) -> Dict:
         from services.tools import GEMINI_TOOL_DEFINITIONS
         import json
 
-        system_instruction = PersonaManager.system_prompt(persona, file_type)
+        system_instruction = get_system_prompt(file_type)
         if memory_context:
             system_instruction += f"\n\nBased on past sessions: {memory_context}"
         if preference_context:
@@ -847,6 +759,166 @@ class AIService:
                 pass
 
         return sources, suggestions
+
+    def generate_chat_title(self, first_message: str) -> str:
+        """Generates a 2-3 word summary title for a new chat session."""
+        prompt = f"Summarize the user's intent in exactly 2 to 3 words. No quotes. Nothing else.\n\nUser: {first_message}"
+        try:
+            if self.provider == "gemini":
+                model = self.gemini_client.GenerativeModel("gemini-1.5-flash")
+                response = model.generate_content(prompt)
+                title = response.text.replace('"', '').strip()
+            else:
+                model_name = "grok-3-mini" if self.provider == "poe" else "gpt-4o-mini"
+                response = self.openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=10,
+                    temperature=0.3
+                )
+                title = response.choices[0].message.content.replace('"', '').strip()
+            
+            words = title.split()
+            if len(words) > 4:
+                title = " ".join(words[:3])
+            return title
+        except Exception as e:
+            logger.error("generate_chat_title.error: %s", e)
+            return "New Chat"
+
+    def explore_the_web(self, query: str, use_poe_search: bool = False, poe_api_key: str = None):
+        """
+        Search-Augmented Generation streaming generator for the Explore Hub.
+
+        Yields SSE-formatted strings:
+          data: {"type": "chunk", "text": "..."}\\n\\n
+          data: {"type": "sources", "sources": [{title, url, snippet, favicon}]}\\n\\n
+
+        If *use_poe_search* is True, delegates to Poe's native Web-Search bot
+        instead of running the DuckDuckGo + trafilatura pipeline.
+        """
+        import json as _json
+        from services import search_service
+
+        sources: list[dict] = []
+
+        # ── Step A: gather context ─────────────────────────────────────────────
+        if use_poe_search:
+            # Route through Poe's built-in web-search capability
+            context_block = ""
+            system_prompt = (
+                "You are FileGeek Explore — an AI research assistant with live web search access. "
+                "Answer the user's query thoroughly. Use inline citations like [1], [2] where applicable."
+            )
+            bot_model = "Web-Search"  # Poe native
+        else:
+            # DuckDuckGo → trafilatura pipeline
+            try:
+                results = search_service.web_search(query, max_results=8)
+                urls = [r["url"] for r in results if r.get("url")]
+                scraped = search_service.scrape_urls(urls, max_pages=5)
+                context_block, sources = search_service.build_context(results, scraped)
+            except Exception as exc:
+                logger.error("explore_the_web.search_failed: %s", exc)
+                context_block = ""
+                sources = []
+
+            system_prompt = (
+                "You are FileGeek Explore — an AI research assistant. "
+                "You have been given web search results below. Use them to answer the user's question. "
+                "You MUST cite sources using inline notation like [1], [2], [3] that correspond exactly "
+                "to the numbered sources in the context. Be thorough and well-structured using Markdown.\n\n"
+                "--- WEB CONTEXT ---\n"
+                f"{context_block}\n"
+                "--- END CONTEXT ---"
+            )
+            bot_model = "GPT-4o"
+
+        # Yield sources metadata first so the frontend can render source chips immediately
+        if sources:
+            for src in sources:
+                domain = ""
+                try:
+                    from urllib.parse import urlparse
+                    domain = urlparse(src["url"]).netloc.replace("www.", "")
+                    src["favicon"] = f"https://www.google.com/s2/favicons?domain={domain}&sz=32"
+                except Exception:
+                    src["favicon"] = ""
+            yield f"data: {_json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+
+        # ── Step B: stream Poe / OpenAI response ─────────────────────────────
+        try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": query},
+            ]
+
+            if AI_PROVIDER == "poe":
+                client = OpenAI(
+                    api_key=poe_api_key or os.getenv("POE_API_KEY"),
+                    base_url="https://api.poe.com/v1",
+                )
+                stream = client.chat.completions.create(
+                    model=bot_model,
+                    messages=messages,
+                    stream=True,
+                    max_tokens=2048,
+                )
+            elif AI_PROVIDER == "openai":
+                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                stream = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    stream=True,
+                    max_tokens=2048,
+                )
+            else:
+                # Gemini streaming synthesis
+                genai_mod = self.gemini_client
+                gmodel = genai_mod.GenerativeModel(
+                    model_name=GEMINI_CHAT_MODEL,
+                    system_instruction=system_prompt,
+                )
+                response = gmodel.generate_content(
+                    query,
+                    stream=True,
+                    generation_config={"max_output_tokens": 2048},
+                )
+                for chunk in response:
+                    text = getattr(chunk, "text", "") or ""
+                    if text:
+                        yield f"data: {_json.dumps({'type': 'chunk', 'text': text})}\n\n"
+
+            # Poe's Web-Search bot prepends "Searching… (Xs elapsed)" status lines
+            # before the real answer. Buffer until we detect real content.
+            import re as _re
+            _STATUS_RE = _re.compile(
+                r'^(?:(?:Searching\.{3}|Searching…)(?:\s*\(\d+s elapsed\))?\s*)*',
+                _re.MULTILINE,
+            )
+            seen_content = False
+            pre_buf = ""
+
+            for chunk in stream:
+                delta = chunk.choices[0].delta
+                text = getattr(delta, "content", None) or ""
+                if not text:
+                    continue
+                if seen_content:
+                    yield f"data: {_json.dumps({'type': 'chunk', 'text': text})}\n\n"
+                else:
+                    pre_buf += text
+                    stripped = _STATUS_RE.sub("", pre_buf).lstrip()
+                    if stripped:
+                        seen_content = True
+                        pre_buf = ""
+                        yield f"data: {_json.dumps({'type': 'chunk', 'text': stripped})}\n\n"
+
+            yield "data: [DONE]\n\n"
+
+        except Exception as exc:
+            logger.error("explore_the_web.stream_failed: %s", exc)
+            yield f"data: {_json.dumps({'type': 'error', 'text': str(exc)})}\n\n"
 
     # ── Embeddings ──────────────────────────────────────────────────────
     def get_embeddings(self, text_list: List[str]) -> List[List[float]]:

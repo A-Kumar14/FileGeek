@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Config
@@ -37,9 +37,9 @@ from routers.auth import router as auth_router
 from schemas import (
     ChatMessageCreate, DocumentCreate, ExportRequest, FeedbackCreate,
     FlashcardProgressCreate, NotionExportRequest, QuizResultCreate,
-    S3PresignRequest, SessionCreate, TTSRequest,
+    S3PresignRequest, SessionCreate, TTSRequest, ExploreRequest, ExploreSearchRequest,
 )
-from services.ai_service import AIService, PersonaManager
+from services.ai_service import AIService
 from services.file_service import FileService
 from services.rag_service import RAGService, MemoryService
 from services.tools import ToolExecutor
@@ -76,6 +76,21 @@ limiter = Limiter(key_func=get_remote_address)
 async def lifespan(app: FastAPI):
     await init_db()
     logger.info("database.initialized")
+    # Safe migration: add session_type column if it doesn't exist yet
+    import sqlite3, os as _os
+    from database import DATABASE_URL as _DATABASE_URL
+    _db_path = _DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+    if _db_path.startswith("./"):
+        _db_path = _os.path.join(_os.path.dirname(__file__), _db_path[2:])
+    try:
+        _conn = sqlite3.connect(_db_path)
+        _conn.execute("ALTER TABLE study_sessions ADD COLUMN session_type TEXT DEFAULT 'chat'")
+        _conn.commit()
+        logger.info("migration.added_session_type")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    finally:
+        _conn.close()
     yield
 
 
@@ -212,27 +227,6 @@ async def workers_status():
         return {"available": False, "workers": [], "reason": str(exc)}
 
 
-@app.get("/personas")
-async def list_personas(request: Request, response: Response):
-    data = {"personas": PersonaManager.list_all()}
-
-    # /personas is static — ETag is computed once and stored in Redis
-    r = _get_redis()
-    cache_key = "etag:personas"
-    etag = r.get(cache_key) if r else None
-    if not etag:
-        etag = _make_etag(data)
-        if r:
-            r.set(cache_key, etag, ex=86400)  # 24 h TTL — personas rarely change
-
-    if _check_etag(request, etag):
-        return Response(status_code=304)
-
-    response.headers["ETag"] = etag
-    response.headers["Cache-Control"] = "public, max-age=3600"
-    return data
-
-
 # ── Celery task polling ────────────────────────────────────────────────────────
 @app.get("/tasks/{task_id}")
 async def get_task_status(
@@ -327,12 +321,76 @@ async def list_sessions(request: Request, response: Response, current_user: Curr
     return data
 
 
+# ── Library ────────────────────────────────────────────────────────────────
+@app.get("/library")
+async def get_library(request: Request, response: Response, current_user: CurrentUser, db: DB):
+    result = await db.execute(
+        select(SessionDocument, StudySession.title.label("session_title"))
+        .join(StudySession, SessionDocument.session_id == StudySession.id)
+        .where(StudySession.user_id == current_user.id)
+        .order_by(SessionDocument.indexed_at.desc())
+        .limit(100)
+    )
+    docs = []
+    seen_files = set()
+    for doc, session_title in result.all():
+        if doc.file_name in seen_files:
+            continue
+        seen_files.add(doc.file_name)
+        d = doc.to_dict()
+        d["session_title"] = session_title
+        docs.append(d)
+
+    # Fetch user preferences via background loop
+    loop = asyncio.get_event_loop()
+    try:
+        from services.rag_service import memory_service
+        prefs = await loop.run_in_executor(
+            None, memory_service.get_user_preferences, current_user.id
+        )
+    except Exception as exc:
+        logger.warning("memory.preferences.failed", error=str(exc))
+        prefs = "No highlights yet. Chat more to build memory!"
+
+    data = {"documents": docs, "preferences": prefs}
+
+    etag = _make_etag(data)
+    if _check_etag(request, etag):
+        return Response(status_code=304)
+
+    r = _get_redis()
+    if r:
+        r.set(f"etag:library:{current_user.id}", etag, ex=60)
+
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "private, max-age=15"
+    return data
+
+@app.delete("/documents/{doc_id}")
+async def delete_document(doc_id: int, current_user: CurrentUser, db: DB):
+    doc = await db.scalar(
+        select(SessionDocument)
+        .join(StudySession, SessionDocument.session_id == StudySession.id)
+        .where(StudySession.user_id == current_user.id, SessionDocument.id == doc_id)
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    try:
+        rag_service.collection.delete(where={"document_id": doc.chroma_document_id})
+    except Exception as exc:
+        logger.warning("chromadb.delete.doc.failed", doc_id=doc.chroma_document_id, error=str(exc))
+        
+    await db.delete(doc)
+    await db.commit()
+    return {"message": "Document deleted"}
+
 @app.post("/sessions", status_code=201)
 async def create_session(data: SessionCreate, current_user: CurrentUser, db: DB):
     session = StudySession(
         user_id=current_user.id,
         title=data.title.strip() or "Untitled Session",
-        persona=data.persona.strip() or "academic",
+        session_type=data.session_type or "chat",
     )
     db.add(session)
     await db.commit()
@@ -535,6 +593,19 @@ async def send_session_message(
     db.add(user_msg)
     await db.commit()
     await db.refresh(user_msg)
+    
+    # Generate title on first message
+    if session.title in ["New Chat", "Untitled Session"]:
+        result_count = await db.execute(select(func.count()).where(ChatMessage.session_id == session_id))
+        count = result_count.scalar()
+        if count == 1:
+            new_title = ai_service.generate_chat_title(question)
+            if new_title and new_title != "New Chat":
+                session.title = new_title
+                await db.commit()
+                r = _get_redis()
+                if r:
+                    r.delete(f"etag:sessions:{current_user.id}")
 
     # Build chat history
     msgs_result = await db.execute(
@@ -575,7 +646,6 @@ async def send_session_message(
                     tool_executor=tool_executor,
                     session_id=session_id,
                     user_id=current_user.id,
-                    persona=session.persona or "academic",
                     file_type="pdf",
                     model_override=model_override,
                     memory_context=memory_context,
@@ -1226,7 +1296,6 @@ async def upload_file(request: Request, current_user: CurrentUser, db: DB):
     deep_think = (form.get("deepThink", "") or "").lower() == "true"
     n_chunks = Config.DEEP_THINK_CHUNKS if deep_think else Config.NUM_RETRIEVAL_CHUNKS
     model_override = AIService.RESPONSE_MODEL if deep_think else None
-    persona = (form.get("persona", "") or "").strip() or "academic"
 
     all_chunks_with_pages = []
     all_file_infos = []
@@ -1300,7 +1369,7 @@ async def upload_file(request: Request, current_user: CurrentUser, db: DB):
 
     ai_response = ai_service.answer_from_context(
         relevant_chunks, question, chat_history,
-        model_override=model_override, persona=persona,
+        model_override=model_override,
         file_type=primary_file_type, image_paths=image_filepaths or None,
     )
     if not ai_response:
@@ -1322,6 +1391,17 @@ async def upload_file(request: Request, current_user: CurrentUser, db: DB):
         "sources": sources,
     }
 
+
+@app.post("/explore")
+@limiter.limit("20/minute")
+async def explore_endpoint(request: ExploreRequest, current_user: CurrentUser):
+    try:
+        data = ai_service.explore(request.question)
+        return {"answer": data["answer"], "citations": data["citations"]}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to fetch Explore results")
 
 # ── Legacy ask endpoint ────────────────────────────────────────────────────────
 @app.post("/ask")
@@ -1432,7 +1512,7 @@ async def ask(request: Request, current_user: CurrentUser, db: DB):
 
     ai_response = ai_service.answer_from_context(
         relevant_chunks, question, chat_history,
-        model_override=model_override, persona=persona,
+        model_override=model_override,
         file_type=primary_file_type, image_paths=image_filepaths or None,
     )
     if not ai_response:
@@ -1473,8 +1553,7 @@ async def text_to_speech(
             status_code=503, detail="TTS requires OPENAI_API_KEY to be set"
         )
 
-    voice = PersonaManager.voice_for(data.persona)
-    tts_response = tts_client.audio.speech.create(model="tts-1", voice=voice, input=text)
+    tts_response = tts_client.audio.speech.create(model="tts-1", voice="alloy", input=text)
     return Response(content=tts_response.content, media_type="audio/mpeg")
 
 
@@ -1578,6 +1657,54 @@ async def export_enex(data: ExportRequest, current_user: CurrentUser, db: DB):
         content=enex,
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{data.title}.enex"'},
+    )
+
+
+# ── Explore Hub — Streaming Search-Augmented Generation ───────────────────────
+@app.post("/explore/search")
+@limiter.limit("15/minute")
+async def explore_search(request: Request, body: ExploreSearchRequest, current_user: CurrentUser, db: DB):
+    """
+    Streams a Search-Augmented Generation response for the Explore Hub.
+    Returns Server-Sent Events with chunk / sources / error / done events.
+    """
+    poe_key = request.headers.get("X-Poe-Api-Key")
+
+    # Mark the session as an explore session if session_id provided
+    if body.session_id:
+        try:
+            result = await db.execute(
+                select(StudySession).where(
+                    StudySession.id == body.session_id,
+                    StudySession.user_id == current_user.id,
+                )
+            )
+            sess = result.scalar_one_or_none()
+            if sess:
+                sess.session_type = "explore"
+                await db.commit()
+        except Exception as exc:
+            logger.warning("explore_search.session_mark.failed", error=str(exc))
+
+    def _stream():
+        try:
+            yield from ai_service.explore_the_web(
+                query=body.query,
+                use_poe_search=body.use_poe_search,
+                poe_api_key=poe_key,
+            )
+        except Exception as exc:
+            import json
+            logger.error("explore_search.failed", error=str(exc))
+            yield f"data: {json.dumps({'type': 'error', 'text': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

@@ -1,16 +1,13 @@
 import React, { useRef, useEffect, useState, useMemo, lazy, Suspense } from 'react';
-import { Box, TextField, IconButton, Typography, Dialog, DialogContent } from '@mui/material';
-import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import { Box, TextField, Typography, Dialog, DialogContent } from '@mui/material';
 import { useChatContext } from '../contexts/ChatContext';
 import { useFile } from '../contexts/FileContext';
 import { useModelContext } from '../contexts/ModelContext';
 import { useAuth } from '../contexts/AuthContext';
 import SuggestedPrompts from './SuggestedPrompts';
-import FlashcardPopupDialog from './FlashcardPopupDialog';
 import QuizFlashcardDialog from './QuizFlashcardDialog';
 import ThinkingBlock from './ThinkingBlock';
-
+import DiscoveryDashboard from './DiscoveryDashboard';
 
 const MarkdownRenderer = lazy(() => import('./MarkdownRenderer'));
 
@@ -25,15 +22,14 @@ export default function ChatPanel() {
   const [showPrompts] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
 
-  // ── Flashcard / Quiz quick-generate state ────────────────────────────────
-  const [fcDialogData, setFcDialogData] = useState(null);   // {cards, topic}
+  // ── Quiz quick-generate state ────────────────────────────────────────────
   const [quizDialogData, setQuizDialogData] = useState(null); // [questions]
   const [topicPrompt, setTopicPrompt] = useState(null);      // 'flashcards' | 'quiz' | null
   const [topicInput, setTopicInput] = useState('');
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
 
-  const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  const API = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
   const handleQuickGenerate = async (type, topic) => {
     setGenerating(true);
@@ -56,19 +52,14 @@ export default function ChatPanel() {
         throw new Error('No active session. Open a document and start a chat first.');
       }
 
-      const endpoint = type === 'flashcards' ? '/flashcards/generate' : '/quiz/generate';
-      const res = await fetch(`${API}${endpoint}`, {
+      const res = await fetch(`${API}/quiz/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ session_id: sessionId, topic: topic || 'the document', num_cards: 8, model: selectedModel }),
+        body: JSON.stringify({ session_id: sessionId, topic: topic || 'the document', num_questions: 8, model: selectedModel }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Generation failed');
-      if (type === 'flashcards') {
-        setFcDialogData({ cards: data.cards, topic: data.topic });
-      } else {
-        setQuizDialogData(data.questions || data.cards || []);
-      }
+      setQuizDialogData(data.questions || data.cards || []);
       setTopicPrompt(null);
       setTopicInput('');
     } catch (err) {
@@ -109,58 +100,6 @@ export default function ChatPanel() {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, bgcolor: 'var(--bg-primary)', color: 'var(--fg-primary)', fontFamily: 'var(--font-family)' }}>
 
-      {/* ── Top bar (Cortex-style) ── */}
-      <Box sx={{
-        display: 'flex', alignItems: 'center', flexShrink: 0,
-        px: 2, py: 0.9,
-        borderBottom: '1px solid var(--border)',
-        bgcolor: 'var(--bg-secondary)',
-        gap: 1,
-      }}>
-        {/* Model/brand pill */}
-        <Box sx={{
-          display: 'flex', alignItems: 'center', gap: 0.5,
-          border: '1px solid var(--border)', borderRadius: '20px',
-          px: 1.25, py: 0.35, cursor: 'pointer',
-          transition: 'all 0.15s',
-          '&:hover': { borderColor: 'var(--border-focus)', bgcolor: 'var(--accent-dim)' },
-        }}>
-          <Box sx={{
-            width: 14, height: 14, borderRadius: '50%',
-            bgcolor: 'var(--accent)',
-          }} />
-          <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--fg-primary)' }}>
-            FileGeek
-          </Typography>
-          <KeyboardArrowDownIcon sx={{ fontSize: 14, color: 'var(--fg-dim)' }} />
-        </Box>
-
-        <Box sx={{ flex: 1 }} />
-
-        {/* More options */}
-        <IconButton size="small" sx={{ color: 'var(--fg-dim)', '&:hover': { color: 'var(--fg-primary)', bgcolor: 'var(--accent-dim)' } }}>
-          <MoreHorizIcon sx={{ fontSize: 18 }} />
-        </IconButton>
-
-        {/* Export chat */}
-        <Box
-          onClick={() => {
-            const text = messages.map(m => `${m.role === 'user' ? 'You' : 'FileGeek'}: ${m.content}`).join('\n\n');
-            const blob = new Blob([text], { type: 'text/plain' });
-            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'chat.txt'; a.click();
-          }}
-          sx={{
-            fontSize: '0.75rem', fontWeight: 500, color: 'var(--fg-secondary)',
-            border: '1px solid var(--border)', borderRadius: '8px',
-            px: 1.25, py: 0.4, cursor: 'pointer',
-            transition: 'all 0.15s',
-            '&:hover': { color: 'var(--fg-primary)', borderColor: 'var(--fg-secondary)' },
-          }}
-        >
-          Export chat
-        </Box>
-      </Box>
-
       {/* Messages Area */}
       <Box
         ref={scrollRef}
@@ -177,47 +116,7 @@ export default function ChatPanel() {
         }}
       >
         {displayMessages.length === 0 && showPrompts ? (
-          <Box sx={{
-            height: '100%', display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            gap: 2, pb: 8,
-          }}>
-            {/* 3-D orb — matches Cortex */}
-            <Box sx={{
-              width: 88, height: 88, borderRadius: '50%', flexShrink: 0,
-              bgcolor: 'var(--accent)',
-              boxShadow: '0 0 56px rgba(249,115,22,0.22), inset 0 0 28px rgba(255,255,255,0.28)',
-              animation: 'orbPulse 3.5s ease-in-out infinite',
-            }} />
-
-            {/* "Hello, [name]" — gradient purple like Cortex */}
-            <Typography sx={{
-              fontFamily: 'var(--font-family)',
-              fontWeight: 600,
-              fontSize: '1.75rem',
-              letterSpacing: '-0.02em',
-              color: 'var(--accent)',
-              lineHeight: 1.2,
-              mb: -0.5,
-            }}>
-              Hello, {firstName}
-            </Typography>
-
-            {/* "How can I assist you today?" — bold black */}
-            <Typography sx={{
-              fontFamily: 'var(--font-family)',
-              fontWeight: 700,
-              fontSize: '1.5rem',
-              color: 'var(--fg-primary)',
-              letterSpacing: '-0.02em',
-              textAlign: 'center',
-            }}>
-              How can I assist you today?
-            </Typography>
-
-            {/* Suggestion cards — 3-column, no backgrounds */}
-            <SuggestedPrompts onSelect={(prompt) => addMessage(prompt)} />
-          </Box>
+          <DiscoveryDashboard />
         ) : (
           displayMessages.map((msg, index) => (
             <Box
@@ -240,15 +139,15 @@ export default function ChatPanel() {
                       bgcolor: 'var(--accent)',
                       color: '#FFFFFF',
                       px: 2, py: 1.25,
-                      borderRadius: '18px 18px 4px 18px',
-                      boxShadow: 'var(--shadow)',
+                      borderRadius: '14px 14px 4px 14px',
+                      boxShadow: 'none',
                     }
                     : {
                       bgcolor: 'var(--bg-secondary)',
                       border: '1px solid var(--border)',
                       px: 2, py: 1.5,
-                      borderRadius: '4px 18px 18px 18px',
-                      boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                      borderRadius: '4px 14px 14px 14px',
+                      boxShadow: 'none',
                       position: 'relative',
                     }
                 }
@@ -279,8 +178,8 @@ export default function ChatPanel() {
                     fontFamily: 'var(--font-family)', fontSize: '0.9rem', lineHeight: 1.65,
                     color: 'var(--fg-primary)',
                     '& p': { m: 0, mb: 0.75 },
-                    '& pre': { background: 'var(--bg-tertiary)', p: 1.25, borderRadius: '10px', overflow: 'auto', border: '1px solid var(--border)', fontSize: '0.82rem' },
-                    '& code': { fontFamily: 'var(--font-mono)', fontSize: '0.82rem', background: 'var(--bg-tertiary)', px: 0.5, py: 0.15, borderRadius: '4px' },
+                    '& pre': { background: 'var(--bg-tertiary)', p: 1.25, borderRadius: 0, overflow: 'auto', border: '1px solid var(--border)', fontSize: '0.82rem' },
+                    '& code': { fontFamily: 'var(--font-mono)', fontSize: '0.82rem', background: 'var(--bg-tertiary)', px: 0.5, py: 0.15, borderRadius: 0 },
                     '& h1,& h2,& h3': { mt: 1.5, mb: 0.5, fontWeight: 600 },
                     '& ul,& ol': { pl: 2.5, mt: 0.5, mb: 0.5 },
                     '& li': { mb: 0.25 },
@@ -341,9 +240,8 @@ export default function ChatPanel() {
             alignSelf: 'flex-start', maxWidth: '85%',
             bgcolor: 'var(--bg-secondary)',
             border: '1px solid var(--border)',
-            borderRadius: '4px 18px 18px 18px',
+            borderRadius: '4px 14px 14px 14px',
             px: 2, py: 1.5,
-            boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
           }}>
             <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
               {[0, 0.2, 0.4].map((delay) => (
@@ -387,33 +285,32 @@ export default function ChatPanel() {
           {genError && (
             <Typography sx={{ fontFamily: 'monospace', fontSize: '0.65rem', color: '#FF4444', mt: 1 }}>{genError}</Typography>
           )}
-          <Box sx={{ display: 'flex', gap: 1, mt: 2, justifyContent: 'flex-end' }}>
-            <Box onClick={() => setTopicPrompt(null)} sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#555', cursor: 'pointer', '&:hover': { color: '#E5E5E5' } }}>[CANCEL]</Box>
+          <Box sx={{ display: 'flex', gap: 1, mt: 2, justifyContent: 'flex-end', alignItems: 'center' }}>
+            <Box
+              onClick={() => setTopicPrompt(null)}
+              sx={{ fontFamily: 'var(--font-family)', fontSize: '0.82rem', color: 'var(--fg-dim)', cursor: 'pointer', '&:hover': { color: 'var(--fg-primary)' }, transition: 'color 0.15s' }}
+            >
+              Cancel
+            </Box>
             <Box
               onClick={() => !generating && handleQuickGenerate(topicPrompt, topicInput)}
               sx={{
-                fontFamily: 'monospace', fontSize: '0.7rem', fontWeight: 700,
-                color: generating ? '#444' : '#00FF00',
-                border: `1px solid ${generating ? '#333' : '#00FF00'}`,
-                px: 1.5, py: 0.25, cursor: generating ? 'default' : 'pointer',
-                '&:hover': generating ? {} : { bgcolor: '#001A00' },
+                fontFamily: 'var(--font-family)', fontSize: '0.82rem', fontWeight: 600,
+                color: '#FFFFFF',
+                bgcolor: generating ? 'var(--accent-dim)' : 'var(--accent)',
+                borderRadius: '8px',
+                px: 2, py: 0.5,
+                cursor: generating ? 'default' : 'pointer',
+                opacity: generating ? 0.65 : 1,
+                transition: 'all 0.15s',
+                '&:hover': generating ? {} : { opacity: 0.88 },
               }}
             >
-              {generating ? '[ GENERATING... ]' : '[ GENERATE ]'}
+              {generating ? 'Generating...' : 'Generate'}
             </Box>
           </Box>
         </DialogContent>
       </Dialog>
-
-      {/* Flashcard popup */}
-      <FlashcardPopupDialog
-        open={Boolean(fcDialogData)}
-        onClose={() => setFcDialogData(null)}
-        cards={fcDialogData?.cards || []}
-        topic={fcDialogData?.topic}
-        messageId={null}
-        sessionId={activeSessionId}
-      />
 
       {/* Quiz popup */}
       <QuizFlashcardDialog

@@ -16,7 +16,7 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
     const fileInputRef = useRef(null);
     const { addMessage, isLoading, stopGeneration } = useChatContext();
     const { selectedModel, setSelectedModel } = useModelContext();
-    const { handleFileSelect } = useFile();
+    const { handleFileSelect, fileEntry, removeFile } = useFile();
 
     const [input, setInput] = useState('');
     const [deepThink, setDeepThink] = useState(false);
@@ -88,6 +88,57 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
                     },
                 }}
             >
+                {/* ── File attachment chip (shown when a file is loaded) ── */}
+                {fileEntry && (
+                    <Box sx={{ px: 2, pt: 1.25, pb: 0 }}>
+                        <Box
+                            sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 0.75,
+                                px: 1.25,
+                                py: 0.5,
+                                bgcolor: 'var(--bg-secondary)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '10px',
+                                maxWidth: 260,
+                            }}
+                        >
+                            <Box sx={{ fontSize: '0.75rem', lineHeight: 1, flexShrink: 0 }}>
+                                {fileEntry.fileType?.includes('pdf') || fileEntry.fileName?.endsWith('.pdf')
+                                    ? '📄'
+                                    : fileEntry.fileType?.startsWith('image/')
+                                        ? '🖼️'
+                                        : fileEntry.fileType?.startsWith('audio/')
+                                            ? '🎵'
+                                            : '📄'}
+                            </Box>
+                            <Typography noWrap sx={{
+                                fontSize: '0.72rem',
+                                fontFamily: 'var(--font-family)',
+                                color: 'var(--fg-secondary)',
+                                flex: 1,
+                                minWidth: 0,
+                            }}>
+                                {fileEntry.fileName}
+                            </Typography>
+                            <Box
+                                onClick={removeFile}
+                                sx={{
+                                    fontSize: '0.85rem',
+                                    lineHeight: 1,
+                                    color: 'var(--fg-dim)',
+                                    cursor: 'pointer',
+                                    flexShrink: 0,
+                                    '&:hover': { color: 'var(--fg-primary)' },
+                                }}
+                            >
+                                ×
+                            </Box>
+                        </Box>
+                    </Box>
+                )}
+
                 {/* ── Top row: input + send button ── */}
                 <Box sx={{ display: 'flex', alignItems: 'flex-end', px: 2, pt: 1.5, pb: 1, gap: 1 }}>
                     <TextField

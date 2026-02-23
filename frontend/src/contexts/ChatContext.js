@@ -239,7 +239,19 @@ export function ChatProvider({ children }) {
       }
     }
 
-    const userMsg = { role: 'user', content: question.trim(), timestamp: new Date().toISOString() };
+    const _fe = fileCtx?.fileEntry;
+    const attachedFile = _fe ? {
+      name: _fe.fileName,
+      type: _fe.fileType,
+      url: _fe.uploadedUrl || null,
+      localFile: _fe.localFile || null,
+    } : null;
+    const userMsg = {
+      role: 'user',
+      content: question.trim(),
+      timestamp: new Date().toISOString(),
+      ...(attachedFile ? { attachedFile } : {}),
+    };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setLoading(true);

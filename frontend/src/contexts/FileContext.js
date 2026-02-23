@@ -118,6 +118,7 @@ export function FileProvider({ children }) {
     <FileContext.Provider
       value={{
         file,
+        fileEntry,
         files: fileEntry ? [fileEntry] : [], // Backwards compatibility for UI components expecting array
         fileType,
         activeFileIndex: 0,

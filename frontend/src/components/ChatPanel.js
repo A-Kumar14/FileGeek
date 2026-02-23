@@ -8,6 +8,7 @@ import SuggestedPrompts from './SuggestedPrompts';
 import QuizFlashcardDialog from './QuizFlashcardDialog';
 import ThinkingBlock from './ThinkingBlock';
 import DiscoveryDashboard from './DiscoveryDashboard';
+import FilePreviewModal from './FilePreviewModal';
 
 const MarkdownRenderer = lazy(() => import('./MarkdownRenderer'));
 
@@ -21,6 +22,7 @@ export default function ChatPanel() {
 
   const [showPrompts] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
+  const [previewFile, setPreviewFile] = useState(null);
 
   // ── Quiz quick-generate state ────────────────────────────────────────────
   const [quizDialogData, setQuizDialogData] = useState(null); // [questions]
@@ -203,6 +205,47 @@ export default function ChatPanel() {
                 )}
               </Box>
 
+              {/* File attachment chip under user messages */}
+              {msg.role === 'user' && msg.attachedFile && (
+                <Box
+                  onClick={() => setPreviewFile(msg.attachedFile)}
+                  sx={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 0.6,
+                    mt: 0.5,
+                    px: 1.25,
+                    py: 0.4,
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    bgcolor: 'var(--bg-secondary)',
+                    cursor: 'pointer',
+                    alignSelf: 'flex-end',
+                    maxWidth: 220,
+                    transition: 'border-color 0.15s',
+                    '&:hover': { borderColor: 'var(--accent)' },
+                  }}
+                >
+                  <Box sx={{ fontSize: '0.72rem', lineHeight: 1, flexShrink: 0 }}>
+                    {msg.attachedFile.type?.includes('pdf') || msg.attachedFile.name?.endsWith('.pdf')
+                      ? '📄'
+                      : msg.attachedFile.type?.startsWith('image/')
+                        ? '🖼️'
+                        : msg.attachedFile.type?.startsWith('audio/')
+                          ? '🎵'
+                          : '📄'}
+                  </Box>
+                  <Typography noWrap sx={{
+                    fontFamily: 'var(--font-family)',
+                    fontSize: '0.68rem',
+                    color: 'var(--fg-secondary)',
+                    maxWidth: 160,
+                  }}>
+                    {msg.attachedFile.name}
+                  </Typography>
+                </Box>
+              )}
+
               {/* Source chips — clickable, navigate + highlight PDF */}
               {msg.role === 'assistant' && !msg.isStreaming && msg.sources?.length > 0 && (
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
@@ -311,6 +354,11 @@ export default function ChatPanel() {
           </Box>
         </DialogContent>
       </Dialog>
+
+      {/* File preview popup */}
+      {previewFile && (
+        <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
+      )}
 
       {/* Quiz popup */}
       <QuizFlashcardDialog

@@ -147,6 +147,11 @@ def auto_generate_flashcards_task(self, session_id, user_id, text_excerpt):
             )
             return {"status": "completed", "cards": len(cards[:10])}
 
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        # Non-transient errors: malformed AI output or bad input — retrying won't help.
+        logger.warning("auto_flashcards.bad_output session=%s: %s", session_id, exc)
+        return {"status": "failed", "reason": str(exc)}
     except Exception as exc:
-        logger.warning("auto_flashcards.failed session=%s: %s", session_id, exc)
+        # Transient errors (network, AI rate-limit, DB lock) — retry once.
+        logger.warning("auto_flashcards.transient_error session=%s: %s", session_id, exc)
         raise self.retry(exc=exc)

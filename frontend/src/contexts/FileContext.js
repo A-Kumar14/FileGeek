@@ -88,6 +88,9 @@ export function FileProvider({ children }) {
 
   const setRemoteFile = useCallback((url, name, type) => {
     setFileEntries([{
+      fileId: typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       localFile: null,
       uploadStatus: 'complete',
       uploadProgress: 100,

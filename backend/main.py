@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sqlite3
+from sqlalchemy.exc import DatabaseError as SADatabaseError
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -19,6 +20,7 @@ from fastapi import (
     Request, Response, UploadFile, status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -115,11 +117,25 @@ async def sqlite_db_error_handler(request: Request, exc: sqlite3.DatabaseError):
     )
 
 
+@app.exception_handler(SADatabaseError)
+async def sqlalchemy_db_error_handler(request: Request, exc: SADatabaseError):
+    """Catch SQLAlchemy-wrapped DB errors (e.g. sqlalchemy.exc.OperationalError)."""
+    logger.critical("sqlalchemy.DatabaseError path=%s: %s", request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": "System maintenance in progress. Please try again shortly.",
+            "code": "DB_MAINTENANCE",
+        },
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Catch-all: convert DB-corruption errors to 503; all others to clean 500."""
     if isinstance(exc, HTTPException):
-        raise exc  # let FastAPI handle these normally
+        # Must return a Response inside a handler — raising causes a double-exception.
+        return await http_exception_handler(request, exc)
     err_lower = str(exc).lower()
     _db_keywords = ("disk image is malformed", "database is locked", "no such table",
                     "malformed", "database disk image")
@@ -223,6 +239,19 @@ async def _auto_generate_flashcards(session_id: str, user_id: int, text_excerpt:
     """
     async with AsyncSessionLocal() as db:
         try:
+            # Deduplication guard: skip if flashcards were already auto-generated for
+            # this session (e.g. concurrent uploads from two tabs).
+            existing = await db.execute(
+                select(ChatMessage).where(
+                    ChatMessage.session_id == session_id,
+                    ChatMessage.role == "assistant",
+                    ChatMessage.artifacts_json.like('%"artifact_type": "flashcards"%'),
+                ).limit(1)
+            )
+            if existing.scalar_one_or_none():
+                logger.info("auto_flashcards.skipped.duplicate session=%s", session_id)
+                return
+
             prompt = (
                 "Based on the document excerpt below, generate exactly 5 concise flashcards "
                 "for effective studying. Return ONLY a valid JSON array with no extra text, "
@@ -1398,8 +1427,8 @@ async def transcribe_audio(
     file: UploadFile = File(...),
     session_id: str = Form(None),
     synthesize: bool = Form(False),
-    current_user: CurrentUser = Depends(get_current_user),
-    db: DB = Depends(get_db),
+    current_user: CurrentUser = None,  # noqa: B008 — FastAPI resolves via Annotated[..., Depends()]
+    db: DB = None,  # noqa: B008
 ):
     """
     Transcribe an audio file. Optionally synthesize the transcript with the
@@ -1432,21 +1461,44 @@ async def transcribe_audio(
     with open(filepath, "wb") as f:
         f.write(content)
 
+    # Known Whisper hallucination strings returned for silence/noise-only audio.
+    _WHISPER_SILENCE = frozenset({
+        "[blank_audio]", "you", "thank you.", "thanks.", ".", "..", "...", "the",
+        "thank you for watching.", "subtitles by the amara.org community",
+    })
+
     try:
         with open(filepath, "rb") as audio_file:
             transcript = openai_client.audio.transcriptions.create(
                 model="whisper-1", file=audio_file, response_format="text"
             )
 
+        # Guard: reject empty or silence-only transcripts before synthesis
+        transcript_clean = (transcript or "").strip()
+        if not transcript_clean or len(transcript_clean) < 5 \
+                or transcript_clean.lower() in _WHISPER_SILENCE:
+            return {"transcript": transcript_clean, "warning": "No speech detected"}
+
         # ── Optional: Voice-to-Research Synthesis ──────────────────────────────
-        if synthesize and session_id and transcript:
+        if synthesize and session_id and transcript_clean:
+            # Ownership check: ensure session belongs to the calling user
+            _sess_check = await db.execute(
+                select(StudySession).where(
+                    StudySession.id == session_id,
+                    StudySession.user_id == current_user.id,
+                )
+            )
+            if not _sess_check.scalar_one_or_none():
+                # Session not found / not owned — skip synthesis, return plain transcript
+                return {"transcript": transcript_clean}
+
             try:
                 rag_result = await rag_service.query_async(
-                    transcript, session_id, current_user.id, n_results=5
+                    transcript_clean, session_id, current_user.id, n_results=5
                 )
                 if rag_result["chunks"]:
                     synthesis_prompt = (
-                        f"The user recorded the following voice note:\n\"{transcript}\"\n\n"
+                        f"The user recorded the following voice note:\n\"{transcript_clean}\"\n\n"
                         "Here are relevant excerpts from their uploaded documents:\n"
                         + "\n---\n".join(rag_result["chunks"][:3])
                         + "\n\nCreate a structured Research Note that connects the voice "
@@ -1479,7 +1531,7 @@ async def transcribe_audio(
                 logger.warning("transcribe.synthesis.failed: %s", synth_exc)
                 # Fall through — return plain transcript
 
-        return {"transcript": transcript}
+        return {"transcript": transcript_clean}
     finally:
         try:
             os.remove(filepath)

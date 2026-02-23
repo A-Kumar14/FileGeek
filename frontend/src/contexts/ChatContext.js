@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useState, useContext, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import useChat from '../hooks/useChat';
 import { useFile } from './FileContext';
@@ -38,6 +38,10 @@ export function ChatProvider({ children }) {
   // Generation counter — prevents stale loadSession() responses from overwriting
   // a newer session's messages when the user switches sessions rapidly.
   const loadGenRef = useRef(0);
+  // Ref mirror of messages.length so loadSession doesn't need it as a dep
+  // (adding it to deps causes loadSession to be recreated on every message received).
+  const messagesLengthRef = useRef(0);
+  useEffect(() => { messagesLengthRef.current = messages.length; }, [messages]);
 
   const { sendMessage: apiSendMessage } = useChat();
   const fileCtx = useFile();
@@ -135,8 +139,8 @@ export function ChatProvider({ children }) {
   }, [createSessionMutation]);
 
   const loadSession = useCallback(async (sessionId) => {
-    // Skip redundant refetch if the session is already loaded
-    if (sessionId === activeSessionId && messages.length > 0) return;
+    // Skip redundant refetch if the session is already loaded (use ref to avoid dep)
+    if (sessionId === activeSessionId && messagesLengthRef.current > 0) return;
 
     // Increment generation — any in-flight load for a previous call will see
     // gen !== loadGenRef.current and discard its results (race-condition fix).
@@ -182,8 +186,9 @@ export function ChatProvider({ children }) {
       }
       return prev;
     });
-    setLoading(false);
-  }, [setRemoteFile, removeFile, activeSessionId, messages.length]);
+    // Guard setLoading(false) so a stale load can't clear the spinner for a newer load
+    if (gen === loadGenRef.current) setLoading(false);
+  }, [setRemoteFile, removeFile, activeSessionId]);
 
   const removeSession = useCallback(async (sessionId) => {
     const token = localStorage.getItem('filegeek-token');

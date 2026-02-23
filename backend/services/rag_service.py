@@ -31,6 +31,15 @@ class RAGService:
 
     def index_document(self, filepath: str, document_id: str, session_id: str, user_id: int) -> Dict:
         """Extract, chunk, embed, and store a local file. Returns indexing stats."""
+        # Guard: reject write if stored embeddings don't match current provider.
+        # Silently allowing a mismatch permanently corrupts the ChromaDB index.
+        dim_check = self.check_embedding_dimensions()
+        if dim_check.get("status") == "mismatch":
+            raise ValueError(
+                f"Embedding dimension mismatch: {dim_check['message']} "
+                "Cannot index new documents until the vector store is cleared."
+            )
+
         page_texts = self.file_service.extract_text_universal(filepath)
         if not page_texts:
             return {"chunk_count": 0, "page_count": 0, "text": ""}

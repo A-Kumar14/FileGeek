@@ -154,15 +154,15 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"error": "An unexpected server error occurred. Please try again."},
     )
 
+_extra_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "https://localhost:3000",
         "https://filegeek.vercel.app",
-        *([o for o in (os.getenv("CORS_ORIGINS", "").split(",")) if o.strip()]),
+        *_extra_origins,
     ],
-    allow_origin_regex=r"https://.*\.(vercel\.app|onrender\.com)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -7,9 +7,13 @@ from functools import partial
 
 import bcrypt
 import jwt
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+
+limiter = Limiter(key_func=get_remote_address)
 
 from database import get_db
 from models_async import User
@@ -17,7 +21,12 @@ from schemas import SignupRequest, LoginRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-JWT_SECRET = os.getenv("JWT_SECRET", os.getenv("SECRET_KEY", "change-me-in-production"))
+JWT_SECRET = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY")
+if not JWT_SECRET:
+    raise SystemExit(
+        "FATAL: JWT_SECRET environment variable is not set. "
+        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
 # Access token: 15 minutes (short-lived, stored in memory by frontend)
 ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "15"))
 # Refresh token: 30 days (long-lived, stored in httpOnly cookie)
@@ -73,7 +82,8 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
 
 
 @router.post("/signup", status_code=201)
-async def signup(data: SignupRequest, response: Response, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def signup(data: SignupRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     name = data.name.strip()
     email = data.email.strip().lower()
     password = data.password
@@ -106,7 +116,8 @@ async def signup(data: SignupRequest, response: Response, db: AsyncSession = Dep
 
 
 @router.post("/login")
-async def login(data: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def login(data: LoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     email = data.email.strip().lower()
     password = data.password
 
@@ -135,7 +146,9 @@ async def login(data: LoginRequest, response: Response, db: AsyncSession = Depen
 
 
 @router.post("/refresh")
+@limiter.limit("30/minute")
 async def refresh_token(
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
     filegeek_refresh: str = Cookie(default=None),

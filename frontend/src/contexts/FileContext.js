@@ -20,8 +20,6 @@ const ACCEPTED_TYPES = [
   'audio/ogg',
 ];
 
-const MAX_FILES = 3;
-
 function getFileType(entry) {
   const name = entry?.fileName || entry?.localFile?.name;
   if (!name) return null;

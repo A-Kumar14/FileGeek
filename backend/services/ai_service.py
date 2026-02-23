@@ -1,12 +1,13 @@
 import os
 import logging
-import base64
 from typing import List, Dict, Optional
-from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.embeddings import Embeddings as LCEmbeddings
+
+from services.providers.gemini_provider import GeminiV1Embeddings, answer_gemini, agentic_gemini
+from services.providers.openai_provider import answer_openai, agentic_openai
 # NOTE: langchain_google_genai is NOT used for embeddings — its default v1beta endpoint
 # dropped support for text-embedding-004. We use a direct REST call to the stable v1 API.
 
@@ -20,90 +21,8 @@ logger = logging.getLogger(__name__)
 _provider = os.getenv("AI_PROVIDER", "").lower()
 
 
-# langchain_google_genai@2.x hardcodes the v1beta endpoint which dropped
-# text-embedding-004. We call the stable v1 REST API directly.
-
-class GeminiV1Embeddings(LCEmbeddings):
-    """Langchain-compatible embeddings that call the Gemini REST API directly.
-
-    Extends ``langchain_core.embeddings.Embeddings`` so that langchain_chroma
-    and other Langchain integrations recognise this as a native embeddings
-    provider and call ``embed_documents`` / ``embed_query`` without any
-    intermediate wrapping or fallback.
-
-    Bypasses langchain_google_genai's hardcoded endpoint configuration.
-    Set ``api_version`` to ``'v1beta'`` (default) or ``'v1'`` to match what
-    your API key / account supports.  Use ``ListModels`` to discover which
-    embedding models are available on your key.
-    """
-
-    def __init__(
-        self,
-        api_key: str,
-        model: str = "models/gemini-embedding-001",
-        api_version: str = "v1beta",
-    ):
-        import requests as _requests
-        self._requests = _requests
-        self.api_key = api_key
-        self.api_version = api_version
-        # Normalise: strip leading 'models/' — we always prefix it ourselves
-        bare = model.replace("models/", "", 1)
-        self.model = bare
-        self._batch_url = (
-            f"https://generativelanguage.googleapis.com/{api_version}/models/{bare}:batchEmbedContents"
-        )
-        self._embed_url = (
-            f"https://generativelanguage.googleapis.com/{api_version}/models/{bare}:embedContent"
-        )
-
-    def _batch_embed(self, texts: List[str]) -> List[List[float]]:
-        payload = {
-            "requests": [
-                {
-                    "model": f"models/{self.model}",
-                    "content": {"parts": [{"text": t}]},
-                    "task_type": "RETRIEVAL_DOCUMENT",
-                }
-                for t in texts
-            ]
-        }
-        resp = self._requests.post(
-            self._batch_url,
-            params={"key": self.api_key},
-            json=payload,
-            timeout=60,
-        )
-        if not resp.ok:
-            raise RuntimeError(f"Error embedding content: {resp.status_code} {resp.text}")
-        data = resp.json()
-        # batchEmbedContents response: {"embeddings": [{"values": [...], ...}]}
-        # NOT {"embeddings": [{"embedding": {"values": [...]}}]} — that's the single embedContent format
-        return [item["values"] for item in data["embeddings"]]
-
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Embed a list of documents (batched to 100 per call)."""
-        results = []
-        for i in range(0, len(texts), 100):
-            results.extend(self._batch_embed(texts[i : i + 100]))
-        return results
-
-    def embed_query(self, text: str) -> List[float]:
-        """Embed a single query string."""
-        payload = {
-            "model": f"models/{self.model}",
-            "content": {"parts": [{"text": text}]},
-            "task_type": "RETRIEVAL_QUERY",
-        }
-        resp = self._requests.post(
-            self._embed_url,
-            params={"key": self.api_key},
-            json=payload,
-            timeout=60,
-        )
-        if not resp.ok:
-            raise RuntimeError(f"Error embedding query: {resp.status_code} {resp.text}")
-        return resp.json()["embedding"]["values"]
+# GeminiV1Embeddings, answer_gemini, agentic_gemini, answer_openai, agentic_openai
+# are imported from services.providers.* above.
 
 
 if _provider == "openrouter":
@@ -399,69 +318,7 @@ class AIService:
         file_type: str = "pdf",
         image_paths: Optional[List[str]] = None,
     ) -> Optional[str]:
-        try:
-            if not question.strip():
-                logger.error("Empty question provided")
-                return None
-
-            context = "\n\n---\n\n".join(context_chunks) if context_chunks else ""
-            system_instruction = get_system_prompt(file_type)
-            if model_override:
-                system_instruction += "\n\nThink step by step. Be thorough, exhaustive, and analytical."
-
-            model_name = model_override or self.GEMINI_CHAT_MODEL
-            gemini_genai = self.gemini_client
-            model = gemini_genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=system_instruction,
-            )
-
-            contents = []
-
-            # Chat history
-            if chat_history:
-                for entry in chat_history:
-                    role = entry.get("role")
-                    content = entry.get("content", "")
-                    if role == "user":
-                        contents.append({"role": "user", "parts": [content]})
-                    elif role == "assistant":
-                        contents.append({"role": "model", "parts": [content]})
-
-            # User turn with context + images
-            user_parts = []
-            if context:
-                user_parts.append(
-                    f"Context from the document:\n\n{context}\n\n---\n\nQuestion: {question}"
-                )
-            else:
-                user_parts.append(question)
-
-            # Multi-modal: attach images directly
-            if image_paths:
-                for img_path in image_paths:
-                    try:
-                        img_data = Path(img_path).read_bytes()
-                        ext = Path(img_path).suffix.lower()
-                        mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}.get(ext, "image/png")
-                        user_parts.append({
-                            "inline_data": {
-                                "mime_type": mime,
-                                "data": base64.b64encode(img_data).decode("utf-8"),
-                            }
-                        })
-                    except Exception as e:
-                        logger.warning(f"Could not attach image {img_path}: {e}")
-
-            contents.append({"role": "user", "parts": user_parts})
-            response = model.generate_content(contents)
-            answer = response.text
-            logger.info(f"Gemini answered ({len(context_chunks)} chunks, model={model_name}, images={len(image_paths or [])})")
-            return answer
-
-        except Exception as e:
-            logger.error(f"Gemini error: {e}")
-            return None
+        return answer_gemini(self, context_chunks, question, chat_history, model_override, file_type, image_paths)
 
     # ── OpenAI implementation ───────────────────────────────────────────
     def _answer_openai(
@@ -473,65 +330,7 @@ class AIService:
         file_type: str = "pdf",
         image_paths: Optional[List[str]] = None,
     ) -> Optional[str]:
-        try:
-            if not question.strip():
-                logger.error("Empty question provided")
-                return None
-
-            context = "\n\n---\n\n".join(context_chunks) if context_chunks else ""
-            system_content = get_system_prompt(file_type)
-            if model_override:
-                system_content += "\n\nThink step by step. Be thorough, exhaustive, and analytical."
-
-            messages = [{"role": "system", "content": system_content}]
-
-            # Chat history
-            if chat_history:
-                for entry in chat_history:
-                    if entry.get("role") in ("user", "assistant") and entry.get("content"):
-                        messages.append({"role": entry["role"], "content": entry["content"]})
-
-            # Build user message with optional vision
-            user_content = []
-            text_part = f"Context from the document:\n\n{context}\n\n---\n\nQuestion: {question}" if context else question
-
-            if image_paths:
-                # Use vision-capable format
-                user_content.append({"type": "text", "text": text_part})
-                for img_path in image_paths:
-                    try:
-                        img_data = Path(img_path).read_bytes()
-                        ext = Path(img_path).suffix.lower()
-                        mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}.get(ext, "image/png")
-                        b64 = base64.b64encode(img_data).decode("utf-8")
-                        user_content.append({
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime};base64,{b64}"},
-                        })
-                    except Exception as e:
-                        logger.warning(f"Could not attach image {img_path}: {e}")
-                messages.append({"role": "user", "content": user_content})
-            else:
-                messages.append({"role": "user", "content": text_part})
-
-            # Try each available provider in order (Poe → OpenAI or OpenAI → Poe fallback)
-            for _fb_client, _fb_model in self._get_fallback_clients(model_override):
-                _call_model = model_override or _fb_model
-                try:
-                    response = _fb_client.chat.completions.create(
-                        model=_call_model,
-                        messages=messages,
-                    )
-                    answer = response.choices[0].message.content
-                    logger.info("OpenAI answered (%d chunks, model=%s)", len(context_chunks), _call_model)
-                    return answer
-                except Exception as fb_e:
-                    logger.warning("answer_from_context provider failed model=%s: %s — trying next", _call_model, fb_e)
-            return None
-
-        except Exception as e:
-            logger.error("OpenAI error (outer): %s", e, exc_info=True)
-            return None
+        return answer_openai(self, context_chunks, question, chat_history, model_override, file_type, image_paths)
 
     # ── Agentic answer with tool calling ──────────────────────────────
     def answer_with_tools(
@@ -593,283 +392,16 @@ class AIService:
         file_type, model_override, memory_context, preference_context,
         has_documents=False,
     ) -> Dict:
-        from services.tools import TOOL_DEFINITIONS
-        import json
-
-        system_content = get_system_prompt(file_type)
-        if memory_context:
-            system_content += f"\n\nBased on past sessions: {memory_context}"
-        if preference_context:
-            system_content += f"\n\nUser preferences: {preference_context}"
-        if has_documents:
-            system_content += (
-                "\n\nDOCUMENTS ARE UPLOADED in this session. Rules:\n"
-                "- ALWAYS call search_documents first before answering any question.\n"
-                "- Base your answer STRICTLY on the retrieved document content.\n"
-                "- If information is not found in the documents, say exactly: 'I cannot find that information in your document.' Do NOT guess or use general knowledge.\n"
-                "- ALWAYS call generate_flashcards when asked for flashcards.\n"
-                "- ALWAYS call generate_quiz when asked for a quiz.\n"
-                "- ALWAYS call create_study_guide when asked for a study guide.\n"
-                "- ALWAYS call generate_visualization when asked for a diagram or chart."
-            )
-        else:
-            system_content += (
-                "\n\nNo documents in this session. Rules:\n"
-                "- Answer general questions directly from your own knowledge.\n"
-                "- ALWAYS call generate_flashcards when asked for flashcards.\n"
-                "- ALWAYS call generate_quiz when asked for a quiz.\n"
-                "- ALWAYS call create_study_guide when asked for a study guide.\n"
-                "- ALWAYS call generate_visualization when asked for a diagram or chart.\n"
-                "- DO NOT produce flashcards or quiz questions as plain text."
-            )
-        if model_override:
-            system_content += "\n\nThink step by step. Be thorough, exhaustive, and analytical."
-
-        messages = [{"role": "system", "content": system_content}]
-        for entry in (chat_history or []):
-            if entry.get("role") in ("user", "assistant") and entry.get("content"):
-                messages.append({"role": entry["role"], "content": entry["content"]})
-        messages.append({"role": "user", "content": question})
-
-        # Resolve OpenRouter aliases (e.g. "gpt-4o" → "openai/gpt-4o")
-        resolved_override = self._resolve_model(model_override)
-        # Use CHAT_MODEL (provider-aware) not OPENAI_CHAT_MODEL (hardcoded "gpt-4o")
-        model = resolved_override or self.CHAT_MODEL
-        fallback_clients = self._get_fallback_clients(model_override)
-        artifacts = []
-        tool_calls_log = []
-        max_rounds = 3
-
-        # Force a specific tool on round 0.
-        # Artifact tools take priority; if documents exist and no artifact was requested,
-        # force search_documents to guarantee grounded answers (zero-hallucination).
-        _q_lower = question.lower()
-        _forced_tool: str | None = None
-        if any(kw in _q_lower for kw in ("flashcard", "flash card", "study card", "spaced repetition")):
-            _forced_tool = "generate_flashcards"
-        elif any(kw in _q_lower for kw in ("quiz", "test me", "multiple choice", "test my knowledge")):
-            _forced_tool = "generate_quiz"
-        elif any(kw in _q_lower for kw in ("study guide", "outline")):
-            _forced_tool = "create_study_guide"
-        elif any(kw in _q_lower for kw in ("diagram", "mind map", "visualization", "chart")):
-            _forced_tool = "generate_visualization"
-        elif has_documents:
-            # Documents present but no artifact requested — force retrieval first
-            _forced_tool = "search_documents"
-
-        for _round in range(max_rounds):
-            # Round 0: force the specific tool if one was detected.
-            # Later rounds: fall back to auto so the model can process tool results.
-            if _round == 0 and _forced_tool:
-                _tool_choice = {"type": "function", "function": {"name": _forced_tool}}
-            else:
-                _tool_choice = "auto"
-
-            # Try each available provider; fall back when one hits quota / errors.
-            response = None
-            last_err = None
-            for _fb_client, _fb_model in fallback_clients:
-                _call_model = model_override or _fb_model
-                for _tc in ([_tool_choice, "auto"] if _tool_choice != "auto" else ["auto"]):
-                    try:
-                        response = _fb_client.chat.completions.create(
-                            model=_call_model,
-                            messages=messages,
-                            tools=TOOL_DEFINITIONS,
-                            tool_choice=_tc,
-                        )
-                        last_err = None
-                        break  # success
-                    except Exception as e:
-                        last_err = e
-                        logger.warning(
-                            "agentic call failed provider=%s model=%s tool_choice=%s: %s — trying next",
-                            _fb_client.base_url if hasattr(_fb_client, "base_url") else "?",
-                            _call_model, _tc, e,
-                        )
-                if response is not None:
-                    break  # found a working provider
-
-            if response is None:
-                logger.error("All providers failed for agentic call: %s", last_err, exc_info=True)
-                return {"answer": "I encountered an error processing your request.", "sources": [], "artifacts": [], "suggestions": []}
-
-
-            choice = response.choices[0]
-
-            if choice.finish_reason == "tool_calls" or (choice.message.tool_calls and len(choice.message.tool_calls) > 0):
-                messages.append(choice.message)
-
-                for tc in choice.message.tool_calls:
-                    fn_name = tc.function.name
-                    try:
-                        fn_args = json.loads(tc.function.arguments)
-                    except json.JSONDecodeError:
-                        fn_args = {}
-
-                    if model_override:
-                        fn_args["model"] = model_override
-
-                    result = tool_executor.execute(fn_name, fn_args, session_id, user_id)
-                    tool_calls_log.append({"tool": fn_name, "args": fn_args, "result_keys": list(result.keys())})
-
-                    if result.get("artifact_type"):
-                        artifacts.append(result)
-
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": json.dumps(result),
-                    })
-            else:
-                answer = choice.message.content or ""
-                sources, suggestions = self._parse_response_extras(answer, tool_calls_log)
-                return {
-                    "answer": answer,
-                    "sources": sources,
-                    "artifacts": artifacts,
-                    "suggestions": suggestions,
-                    "tool_calls": tool_calls_log,
-                }
-
-        # Max rounds reached — get final response
-        try:
-            response = self.openai_client.chat.completions.create(
-                model=model,
-                messages=messages,
-            )
-            answer = response.choices[0].message.content or ""
-        except Exception:
-            answer = "I reached the maximum processing steps. Here's what I found so far."
-
-        sources, suggestions = self._parse_response_extras(answer, tool_calls_log)
-        return {
-            "answer": answer,
-            "sources": sources,
-            "artifacts": artifacts,
-            "suggestions": suggestions,
-            "tool_calls": tool_calls_log,
-        }
+        return agentic_openai(self, question, chat_history, tool_executor, session_id, user_id,
+                              file_type, model_override, memory_context, preference_context, has_documents)
 
     def _agentic_gemini(
         self, question, chat_history, tool_executor, session_id, user_id,
         file_type, model_override, memory_context, preference_context,
         has_documents=False,
     ) -> Dict:
-        from services.tools import GEMINI_TOOL_DEFINITIONS
-        import json
-
-        system_instruction = get_system_prompt(file_type)
-        if memory_context:
-            system_instruction += f"\n\nBased on past sessions: {memory_context}"
-        if preference_context:
-            system_instruction += f"\n\nUser preferences: {preference_context}"
-        if has_documents:
-            system_instruction += (
-                "\n\nDOCUMENTS ARE UPLOADED in this session. "
-                "ALWAYS call search_documents first before answering any question. "
-                "Base your answer STRICTLY on the retrieved document content. "
-                "If information is not found, say: 'I cannot find that information in your document.' "
-                "Use generate_quiz, generate_flashcards, create_study_guide, generate_visualization when asked."
-            )
-        else:
-            system_instruction += (
-                "\n\nNo documents in this session. Answer general questions from your own knowledge. "
-                "Use generate_quiz when asked for a quiz. Use generate_flashcards when asked for flashcards. "
-                "Use create_study_guide when asked for a study guide. "
-                "Use generate_visualization when asked for a diagram or visualization."
-            )
-        if model_override:
-            system_instruction += "\n\nThink step by step. Be thorough, exhaustive, and analytical."
-
-        model_name = model_override or self.GEMINI_CHAT_MODEL
-        gemini_genai = self.gemini_client
-        model = gemini_genai.GenerativeModel(
-            model_name=model_name,
-            system_instruction=system_instruction,
-            tools=[{"function_declarations": GEMINI_TOOL_DEFINITIONS}],
-        )
-
-        contents = []
-        for entry in (chat_history or []):
-            role = entry.get("role")
-            content = entry.get("content", "")
-            if role == "user":
-                contents.append({"role": "user", "parts": [content]})
-            elif role == "assistant":
-                contents.append({"role": "model", "parts": [content]})
-        contents.append({"role": "user", "parts": [question]})
-
-        artifacts = []
-        tool_calls_log = []
-        max_rounds = 3
-
-        for _round in range(max_rounds):
-            try:
-                response = model.generate_content(contents)
-            except Exception as e:
-                logger.error("Gemini agentic call failed: %s", e, exc_info=True)
-                return {"answer": "I encountered an error processing your request.", "sources": [], "artifacts": [], "suggestions": []}
-
-            # Check for function calls
-            candidate = response.candidates[0] if response.candidates else None
-            if not candidate:
-                return {"answer": "No response generated.", "sources": [], "artifacts": [], "suggestions": []}
-
-            has_function_call = False
-            function_responses = []
-
-            for part in candidate.content.parts:
-                if hasattr(part, 'function_call') and part.function_call:
-                    has_function_call = True
-                    fn_name = part.function_call.name
-                    fn_args = dict(part.function_call.args) if part.function_call.args else {}
-                    
-                    if model_override:
-                        fn_args["model"] = model_override
-
-                    result = tool_executor.execute(fn_name, fn_args, session_id, user_id)
-                    tool_calls_log.append({"tool": fn_name, "args": fn_args, "result_keys": list(result.keys())})
-
-                    if result.get("artifact_type"):
-                        artifacts.append(result)
-
-                    function_responses.append({
-                        "function_response": {
-                            "name": fn_name,
-                            "response": result,
-                        }
-                    })
-
-            if has_function_call:
-                contents.append(candidate.content)
-                contents.append({"role": "user", "parts": function_responses})
-            else:
-                answer = response.text or ""
-                sources, suggestions = self._parse_response_extras(answer, tool_calls_log)
-                return {
-                    "answer": answer,
-                    "sources": sources,
-                    "artifacts": artifacts,
-                    "suggestions": suggestions,
-                    "tool_calls": tool_calls_log,
-                }
-
-        # Max rounds — get final text
-        try:
-            response = model.generate_content(contents)
-            answer = response.text or ""
-        except Exception:
-            answer = "I reached the maximum processing steps."
-
-        sources, suggestions = self._parse_response_extras(answer, tool_calls_log)
-        return {
-            "answer": answer,
-            "sources": sources,
-            "artifacts": artifacts,
-            "suggestions": suggestions,
-            "tool_calls": tool_calls_log,
-        }
+        return agentic_gemini(self, question, chat_history, tool_executor, session_id, user_id,
+                              file_type, model_override, memory_context, preference_context, has_documents)
 
     def _parse_response_extras(self, answer: str, tool_calls_log: list) -> tuple:
         """Extract sources from search_documents calls and suggestions from response."""

@@ -4,7 +4,6 @@ import { useChatContext } from '../contexts/ChatContext';
 import { useFile } from '../contexts/FileContext';
 import { useModelContext } from '../contexts/ModelContext';
 import { useAuth } from '../contexts/AuthContext';
-import SuggestedPrompts from './SuggestedPrompts';
 import QuizFlashcardDialog from './QuizFlashcardDialog';
 import ThinkingBlock from './ThinkingBlock';
 import DiscoveryDashboard from './DiscoveryDashboard';
@@ -14,11 +13,10 @@ const MarkdownRenderer = lazy(() => import('./MarkdownRenderer'));
 
 export default function ChatPanel() {
   const scrollRef = useRef(null);
-  const { activeSessionId, messages, addMessage, isLoading, streamingContent, startNewSession, chatSessions } = useChatContext();
+  const { activeSessionId, messages, isLoading, streamingContent, startNewSession, chatSessions } = useChatContext();
   const { file, goToSourcePage } = useFile();
   const { selectedModel } = useModelContext();
   const { user } = useAuth();
-  const firstName = user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'there';
 
   const [showPrompts] = useState(true);
   const [copiedId, setCopiedId] = useState(null);

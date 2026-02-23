@@ -28,7 +28,6 @@ import {
   Brain,
   Cpu,
   Headphones,
-  GraduationCap,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useFile } from '../contexts/FileContext';

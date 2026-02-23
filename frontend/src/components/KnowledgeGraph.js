@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useEffect, useState } from 'react';
-import { Box, Typography, Tooltip } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import ForceGraph2D from 'react-force-graph-2d';
 
 // Node color by type

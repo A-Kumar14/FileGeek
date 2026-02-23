@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Drawer, Typography, IconButton, CircularProgress, Tooltip } from '@mui/material';
+import { Box, Drawer, Typography, IconButton, CircularProgress } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import MemoryIcon from '@mui/icons-material/Memory';
 import { getLibrary } from '../api/library';

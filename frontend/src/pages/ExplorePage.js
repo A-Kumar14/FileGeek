@@ -329,7 +329,7 @@ export default function ExplorePage() {
         } finally {
             setStreaming(false);
         }
-    }, [token, usePoeSearch]);
+    }, [token, usePoeSearch, startNewSession]);
 
     const handleSubmit = () => { if (query.trim()) runSearch(query); };
 

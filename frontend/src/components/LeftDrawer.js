@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Box, Drawer, Typography, IconButton, Tooltip,
   List, ListItemButton, ListItemIcon, ListItemText, Divider, InputBase,

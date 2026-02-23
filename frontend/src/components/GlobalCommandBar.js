@@ -2,9 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { Box, TextField, IconButton, Typography, Menu, MenuItem, Tooltip } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import StopIcon from '@mui/icons-material/Stop';
-import MicIcon from '@mui/icons-material/Mic';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { useChatContext } from '../contexts/ChatContext';
 import { useModelContext } from '../contexts/ModelContext';
 import { useFile } from '../contexts/FileContext';
@@ -19,7 +17,6 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
     const { handleFileSelect, fileEntry, removeFile } = useFile();
 
     const [input, setInput] = useState('');
-    const [deepThink, setDeepThink] = useState(false);
     const [modelMenuAnchor, setModelMenuAnchor] = useState(null);
 
     const activeModel = MODELS.find(m => m.id === selectedModel) || MODELS[0];

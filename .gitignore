@@ -4,6 +4,11 @@ __pycache__/
 *.pyo
 *.pyd
 *.db
+# SQLite WAL/SHM journal files — must never be committed.
+# If these are deleted by git while the DB is mid-write, the DB becomes
+# malformed. They are runtime-only; SQLite recreates them automatically.
+*.db-shm
+*.db-wal
 
 # Virtual environment
 .venv/

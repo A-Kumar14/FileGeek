@@ -57,6 +57,13 @@ class Config:
         "https://filegeek.vercel.app",
     ]
 
+    ALLOWED_URL_PREFIXES = (
+        "https://utfs.io/",
+        "https://uploadthing.com/",
+        "https://ufs.sh/",
+        "https://4k40e5rcbl.ufs.sh/",
+    )
+
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 

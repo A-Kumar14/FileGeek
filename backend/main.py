@@ -1,7 +1,6 @@
-"""FileGeek FastAPI application — replaces app.py."""
+"""FileGeek FastAPI application — app setup, middleware, and router registration."""
 
 import asyncio
-import hashlib
 import json
 import os
 import re
@@ -42,21 +41,15 @@ from schemas import (
     FlashcardProgressCreate, NotionExportRequest, QuizResultCreate,
     S3PresignRequest, SessionCreate, TTSRequest, ExploreRequest, ExploreSearchRequest,
 )
-from services.ai_service import AIService
-from services.file_service import FileService
-from services.rag_service import RAGService, MemoryService
-from services.tools import ToolExecutor
+from services.registry import (
+    ai_service, file_service, rag_service, memory_service, tool_executor,
+)
 from logging_config import get_logger
 from utils.validators import InputValidator, check_prompt_injection
+from utils.cache import get_redis, make_etag, check_etag
+from tasks.document_tasks import auto_generate_flashcards_bg
 
 logger = get_logger(__name__)
-
-# ── Services (module-level singletons) ────────────────────────────────────────
-ai_service = AIService()
-file_service = FileService()
-rag_service = RAGService(ai_service, file_service)
-memory_service = MemoryService(ai_service)
-tool_executor = ToolExecutor(rag_service, ai_service)
 
 UPLOAD_FOLDER = Config.UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -189,115 +182,7 @@ async def log_requests(request: Request, call_next):
     return await call_next(request)
 
 
-# ── Helper ─────────────────────────────────────────────────────────────────────
-ALLOWED_URL_PREFIXES = (
-    "https://utfs.io/",
-    "https://uploadthing.com/",
-    "https://ufs.sh/",
-    "https://4k40e5rcbl.ufs.sh/",
-)
-
-
-# ── ETag / Redis cache helpers ─────────────────────────────────────────────────
-_redis_client = None
-
-
-def _get_redis():
-    """Return a Redis client if available, else None (graceful fallback)."""
-    global _redis_client
-    if _redis_client is not None:
-        return _redis_client
-    try:
-        import redis as _redis_lib
-        r = _redis_lib.from_url(Config.REDIS_URL, socket_connect_timeout=1, decode_responses=True)
-        r.ping()
-        _redis_client = r
-        return r
-    except Exception:
-        return None
-
-
-def _make_etag(data: dict | list) -> str:
-    """Compute a quoted MD5 ETag from JSON-serialisable data."""
-    digest = hashlib.md5(
-        json.dumps(data, sort_keys=True, default=str).encode()
-    ).hexdigest()
-    return f'"{digest}"'
-
-
-def _check_etag(request: Request, etag: str) -> bool:
-    """Return True when the client's If-None-Match matches the ETag (304 path)."""
-    return request.headers.get("if-none-match") == etag
-
-
-# ── Background task helpers ────────────────────────────────────────────────────
-async def _auto_generate_flashcards(session_id: str, user_id: int, text_excerpt: str):
-    """
-    Background task: automatically generate 5 study flashcards after a document
-    is indexed and store them as a system assistant message in the session.
-    Uses the document text directly — no RAG query needed since the text is fresh.
-    """
-    async with AsyncSessionLocal() as db:
-        try:
-            # Deduplication guard: skip if flashcards were already auto-generated for
-            # this session (e.g. concurrent uploads from two tabs).
-            existing = await db.execute(
-                select(ChatMessage).where(
-                    ChatMessage.session_id == session_id,
-                    ChatMessage.role == "assistant",
-                    ChatMessage.artifacts_json.like('%"artifact_type": "flashcards"%'),
-                ).limit(1)
-            )
-            if existing.scalar_one_or_none():
-                logger.info("auto_flashcards.skipped.duplicate session=%s", session_id)
-                return
-
-            prompt = (
-                "Based on the document excerpt below, generate exactly 5 concise flashcards "
-                "for effective studying. Return ONLY a valid JSON array with no extra text, "
-                "in this format: "
-                '[{"front": "question or term", "back": "answer or definition"}, ...]\n\n'
-                f"Document excerpt:\n{text_excerpt[:3000]}"
-            )
-            loop = asyncio.get_event_loop()
-            raw_answer = await loop.run_in_executor(
-                None,
-                lambda: ai_service.answer_from_context(
-                    context_chunks=[text_excerpt[:3000]],
-                    question=(
-                        "Generate 5 study flashcards from this document content. "
-                        "Return ONLY a JSON array of {front, back} objects."
-                    ),
-                    chat_history=[],
-                ),
-            )
-            if not raw_answer:
-                return
-
-            # Extract JSON array from the model's response (tolerant of markdown fences)
-            json_match = re.search(r'\[.*\]', raw_answer, re.DOTALL)
-            if not json_match:
-                logger.warning("auto_flashcards.no_json session=%s", session_id)
-                return
-            cards = json.loads(json_match.group())
-            if not isinstance(cards, list) or len(cards) == 0:
-                return
-
-            msg = ChatMessage(
-                session_id=session_id,
-                role="assistant",
-                content="I've prepared some starter flashcards from your document to help you get started!",
-                artifacts_json=json.dumps([{
-                    "type": "flashcards",
-                    "artifact_type": "flashcards",
-                    "cards": cards[:10],  # cap at 10
-                }]),
-            )
-            db.add(msg)
-            await db.commit()
-            logger.info("auto_flashcards.created session=%s cards=%d", session_id, len(cards[:10]))
-        except Exception as exc:
-            logger.warning("auto_flashcards.failed session=%s: %s", session_id, exc)
+ALLOWED_URL_PREFIXES = Config.ALLOWED_URL_PREFIXES
 
 
 # ── Health & Personas ──────────────────────────────────────────────────────────
@@ -437,12 +322,12 @@ async def list_sessions(request: Request, response: Response, current_user: Curr
     sessions = result.scalars().all()
     data = {"sessions": [s.to_dict() for s in sessions]}
 
-    etag = _make_etag(data)
-    if _check_etag(request, etag):
+    etag = make_etag(data)
+    if check_etag(request, etag):
         return Response(status_code=304)
 
     # Cache ETag in Redis keyed by user (short TTL — sessions mutate frequently)
-    r = _get_redis()
+    r = get_redis()
     if r:
         r.set(f"etag:sessions:{current_user.id}", etag, ex=30)
 
@@ -483,11 +368,11 @@ async def get_library(request: Request, response: Response, current_user: Curren
 
     data = {"documents": docs, "preferences": prefs}
 
-    etag = _make_etag(data)
-    if _check_etag(request, etag):
+    etag = make_etag(data)
+    if check_etag(request, etag):
         return Response(status_code=304)
 
-    r = _get_redis()
+    r = get_redis()
     if r:
         r.set(f"etag:library:{current_user.id}", etag, ex=60)
 
@@ -525,7 +410,7 @@ async def create_session(data: SessionCreate, current_user: CurrentUser, db: DB)
     await db.commit()
     await db.refresh(session)
     # Invalidate sessions ETag so next GET reflects the new session
-    r = _get_redis()
+    r = get_redis()
     if r:
         r.delete(f"etag:sessions:{current_user.id}")
     return {"session": session.to_dict()}
@@ -564,7 +449,7 @@ async def delete_session(session_id: str, current_user: CurrentUser, db: DB):
     await db.delete(session)
     await db.commit()
     # Invalidate sessions ETag
-    r = _get_redis()
+    r = get_redis()
     if r:
         r.delete(f"etag:sessions:{current_user.id}")
     return {"message": "Session deleted"}
@@ -739,7 +624,7 @@ async def index_session_document(
     # Auto-generate flashcards in the background using the first document's text
     if indexed_docs and _first_indexed_text:
         background_tasks.add_task(
-            _auto_generate_flashcards, session_id, current_user.id, _first_indexed_text
+            auto_generate_flashcards_bg, session_id, current_user.id, _first_indexed_text
         )
 
     if len(indexed_docs) == 1:
@@ -796,7 +681,7 @@ async def send_session_message(
             if new_title and new_title != "New Chat":
                 session.title = new_title
                 await db.commit()
-                r = _get_redis()
+                r = get_redis()
                 if r:
                     r.delete(f"etag:sessions:{current_user.id}")
 

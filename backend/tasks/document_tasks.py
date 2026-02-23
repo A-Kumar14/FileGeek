@@ -1,11 +1,15 @@
-"""Async document indexing via Celery."""
+"""Async document indexing via Celery + FastAPI background flashcard generation."""
 
+import asyncio
 import json
 import re
 from datetime import datetime
 
+from sqlalchemy import select
+
 from celery_app import celery_app
 from celery_db import SyncSession
+from database import AsyncSessionLocal
 from logging_config import get_logger
 from models_async import ChatMessage, SessionDocument
 from services.ai_service import AIService
@@ -155,3 +159,62 @@ def auto_generate_flashcards_task(self, session_id, user_id, text_excerpt):
         # Transient errors (network, AI rate-limit, DB lock) — retry once.
         logger.warning("auto_flashcards.transient_error session=%s: %s", session_id, exc)
         raise self.retry(exc=exc)
+
+
+async def auto_generate_flashcards_bg(session_id: str, user_id: int, text_excerpt: str):
+    """
+    FastAPI BackgroundTask: generate 5 flashcards after synchronous (non-Celery)
+    document indexing and store them as an assistant message in the session.
+    """
+    async with AsyncSessionLocal() as db:
+        try:
+            existing = await db.execute(
+                select(ChatMessage).where(
+                    ChatMessage.session_id == session_id,
+                    ChatMessage.role == "assistant",
+                    ChatMessage.artifacts_json.like('%"artifact_type": "flashcards"%'),
+                ).limit(1)
+            )
+            if existing.scalar_one_or_none():
+                logger.info("auto_flashcards.skipped.duplicate session=%s", session_id)
+                return
+
+            loop = asyncio.get_event_loop()
+            raw_answer = await loop.run_in_executor(
+                None,
+                lambda: ai_service.answer_from_context(
+                    context_chunks=[text_excerpt[:3000]],
+                    question=(
+                        "Generate 5 study flashcards from this document content. "
+                        "Return ONLY a JSON array of {front, back} objects."
+                    ),
+                    chat_history=[],
+                ),
+            )
+            if not raw_answer:
+                return
+
+            json_match = re.search(r'\[.*\]', raw_answer, re.DOTALL)
+            if not json_match:
+                logger.warning("auto_flashcards.no_json session=%s", session_id)
+                return
+
+            cards = json.loads(json_match.group())
+            if not isinstance(cards, list) or len(cards) == 0:
+                return
+
+            msg = ChatMessage(
+                session_id=session_id,
+                role="assistant",
+                content="I've prepared some starter flashcards from your document to help you get started!",
+                artifacts_json=json.dumps([{
+                    "type": "flashcards",
+                    "artifact_type": "flashcards",
+                    "cards": cards[:10],
+                }]),
+            )
+            db.add(msg)
+            await db.commit()
+            logger.info("auto_flashcards.created session=%s cards=%d", session_id, len(cards[:10]))
+        except Exception as exc:
+            logger.warning("auto_flashcards.failed session=%s: %s", session_id, exc)

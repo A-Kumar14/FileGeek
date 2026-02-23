@@ -267,23 +267,24 @@ Example format:
 
         result = self.rag_service.query(description, session_id, user_id, n_results=5)
         context = "\n\n".join(result.get("chunks", []))
+        ctx_block = ("Use this document context:\n\n" + context) if context else "Use your general knowledge."
 
         if viz_type == "mermaid":
             instruction = (
                 f"Generate a Mermaid diagram for: '{description}'. "
-                f"{'Use this document context:\n\n' + context if context else 'Use your general knowledge.'}\n\n"
+                f"{ctx_block}\n\n"
                 "Return ONLY the raw Mermaid code — no markdown fences, no explanation, no extra text."
             )
         elif viz_type == "table":
             instruction = (
                 f"Generate a Markdown table for: '{description}'. "
-                f"{'Use this document context:\n\n' + context if context else 'Use your general knowledge.'}\n\n"
+                f"{ctx_block}\n\n"
                 "Return ONLY the Markdown table."
             )
         else:
             instruction = (
                 f"Generate code for: '{description}'. "
-                f"{'Use this document context:\n\n' + context if context else 'Use your general knowledge.'}\n\n"
+                f"{ctx_block}\n\n"
                 "Return ONLY the code."
             )
 

@@ -4,42 +4,74 @@ import { useModelContext } from '../contexts/ModelContext';
 
 export const MODELS = [
   {
+    id: null,
+    name: 'Auto',
+    provider: 'auto',
+    description: 'Backend picks best available model',
+    badge: 'AUTO',
+  },
+  {
+    id: 'gpt-4o',
+    name: 'GPT-4o',
+    provider: 'openai',
+    description: 'Most capable OpenAI model',
+    badge: 'OPENAI',
+  },
+  {
+    id: 'gpt-4o-mini',
+    name: 'GPT-4o Mini',
+    provider: 'openai',
+    description: 'Fast & cost-efficient',
+    badge: 'OPENAI',
+  },
+  {
+    id: 'gemini-2.0-flash',
+    name: 'Gemini 2.0 Flash',
+    provider: 'google',
+    description: 'Google\'s fastest multimodal model',
+    badge: 'GOOGLE',
+  },
+  {
     id: 'grok-3',
     name: 'Grok 3',
-    provider: 'xai',
-    description: 'xAI\'s bleeding edge model',
-    badge: 'XAI',
+    provider: 'poe',
+    description: 'xAI via Poe (requires Poe credits)',
+    badge: 'POE',
   },
   {
     id: 'grok-3-mini',
     name: 'Grok 3 Mini',
-    provider: 'xai',
-    description: 'Fast, efficient reasoning',
-    badge: 'XAI',
-  },
-  {
-    id: 'DeepSeek-R1',
-    name: 'DeepSeek R1',
-    provider: 'deepseek',
-    description: 'Open weight reasoning model',
-    badge: 'DEEPSEEK',
+    provider: 'poe',
+    description: 'Fast xAI model via Poe',
+    badge: 'POE',
   },
 ];
 
 const badgeColor = {
-  XAI: { bg: 'rgba(0,0,0,0.06)', border: 'var(--border)', color: 'var(--fg-secondary)' },
-  DEEPSEEK: { bg: 'rgba(77,107,254,0.08)', border: 'rgba(77,107,254,0.4)', color: '#4d6bfe' },
+  AUTO:   { bg: 'rgba(139,92,246,0.08)', border: 'rgba(139,92,246,0.35)', color: 'var(--accent)' },
+  OPENAI: { bg: 'rgba(16,163,127,0.08)', border: 'rgba(16,163,127,0.35)', color: '#10a37f' },
+  GOOGLE: { bg: 'rgba(66,133,244,0.08)', border: 'rgba(66,133,244,0.35)', color: '#4285f4' },
+  POE:    { bg: 'rgba(0,0,0,0.06)',       border: 'var(--border)',          color: 'var(--fg-secondary)' },
 };
+
+// Sentinel value for MUI Select — <Select value={null}> breaks controlled mode
+const NULL_SENTINEL = '__auto__';
 
 export default function ModelSelector() {
   const { selectedModel, setSelectedModel } = useModelContext();
+
+  // Map null → sentinel for MUI, sentinel → null on change
+  const selectValue = selectedModel === null ? NULL_SENTINEL : (selectedModel ?? NULL_SENTINEL);
   const current = MODELS.find(m => m.id === selectedModel) || MODELS[0];
 
   return (
     <FormControl size="small" sx={{ minWidth: 130 }}>
       <Select
-        value={selectedModel}
-        onChange={(e) => setSelectedModel(e.target.value)}
+        value={selectValue}
+        onChange={(e) => {
+          const v = e.target.value;
+          setSelectedModel(v === NULL_SENTINEL ? null : v);
+        }}
         sx={{
           fontFamily: 'var(--font-family)',
           color: 'var(--fg-primary)',
@@ -69,11 +101,12 @@ export default function ModelSelector() {
         }}
       >
         {MODELS.map((model) => {
-          const bc = badgeColor[model.badge] || badgeColor.XAI;
+          const bc = badgeColor[model.badge] || badgeColor.AUTO;
+          const itemValue = model.id === null ? NULL_SENTINEL : model.id;
           return (
             <MenuItem
-              key={model.id}
-              value={model.id}
+              key={itemValue}
+              value={itemValue}
               sx={{
                 fontFamily: 'var(--font-family)',
                 color: 'var(--fg-primary)',

@@ -14,7 +14,7 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
     const fileInputRef = useRef(null);
     const { addMessage, isLoading, stopGeneration } = useChatContext();
     const { selectedModel, setSelectedModel } = useModelContext();
-    const { handleFileSelect, fileEntry, removeFile } = useFile();
+    const { handleFileSelect, fileEntries, removeFile } = useFile();
 
     const [input, setInput] = useState('');
     const [modelMenuAnchor, setModelMenuAnchor] = useState(null);
@@ -51,12 +51,13 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
 
     return (
         <>
-            {/* Hidden file input */}
+            {/* Hidden multi-file input */}
             <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 style={{ display: 'none' }}
-                onChange={(e) => e.target.files[0] && handleFileSelect(e.target.files[0])}
+                onChange={(e) => e.target.files.length > 0 && handleFileSelect(Array.from(e.target.files))}
             />
 
             <Box
@@ -85,53 +86,61 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
                     },
                 }}
             >
-                {/* ── File attachment chip (shown when a file is loaded) ── */}
-                {fileEntry && (
-                    <Box sx={{ px: 2, pt: 1.25, pb: 0 }}>
-                        <Box
-                            sx={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 0.75,
-                                px: 1.25,
-                                py: 0.5,
-                                bgcolor: 'var(--bg-secondary)',
-                                border: '1px solid var(--border)',
-                                borderRadius: '10px',
-                                maxWidth: 260,
-                            }}
-                        >
-                            <Box sx={{ fontSize: '0.75rem', lineHeight: 1, flexShrink: 0 }}>
-                                {fileEntry.fileType?.includes('pdf') || fileEntry.fileName?.endsWith('.pdf')
-                                    ? '📄'
-                                    : fileEntry.fileType?.startsWith('image/')
-                                        ? '🖼️'
-                                        : fileEntry.fileType?.startsWith('audio/')
-                                            ? '🎵'
-                                            : '📄'}
-                            </Box>
-                            <Typography noWrap sx={{
-                                fontSize: '0.72rem',
-                                fontFamily: 'var(--font-family)',
-                                color: 'var(--fg-secondary)',
-                                flex: 1,
-                                minWidth: 0,
-                            }}>
-                                {fileEntry.fileName}
-                            </Typography>
+                {/* ── File attachment chips (shown when files are loaded) ── */}
+                {fileEntries && fileEntries.length > 0 && (
+                    <Box sx={{ px: 2, pt: 1.25, pb: 0, display: 'flex', flexWrap: 'wrap', gap: 0.75, alignItems: 'center' }}>
+                        {fileEntries.slice(0, 2).map((fe, i) => (
                             <Box
-                                onClick={removeFile}
+                                key={i}
                                 sx={{
-                                    fontSize: '0.85rem',
-                                    lineHeight: 1,
-                                    color: 'var(--fg-dim)',
-                                    cursor: 'pointer',
-                                    flexShrink: 0,
-                                    '&:hover': { color: 'var(--fg-primary)' },
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 0.75,
+                                    px: 1.25,
+                                    py: 0.5,
+                                    bgcolor: 'var(--bg-secondary)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '10px',
+                                    maxWidth: 220,
                                 }}
                             >
-                                ×
+                                <Box sx={{ fontSize: '0.75rem', lineHeight: 1, flexShrink: 0 }}>
+                                    {fe.fileType?.includes('pdf') || fe.fileName?.endsWith('.pdf')
+                                        ? '📄'
+                                        : fe.fileType?.startsWith('image/')
+                                            ? '🖼️'
+                                            : fe.fileType?.startsWith('audio/')
+                                                ? '🎵'
+                                                : '📄'}
+                                </Box>
+                                <Typography noWrap sx={{
+                                    fontSize: '0.72rem',
+                                    fontFamily: 'var(--font-family)',
+                                    color: 'var(--fg-secondary)',
+                                    flex: 1,
+                                    minWidth: 0,
+                                }}>
+                                    {fe.fileName}
+                                </Typography>
                             </Box>
+                        ))}
+                        {fileEntries.length > 2 && (
+                            <Typography sx={{ fontSize: '0.72rem', color: 'var(--fg-dim)', fontFamily: 'var(--font-family)' }}>
+                                +{fileEntries.length - 2} more
+                            </Typography>
+                        )}
+                        <Box
+                            onClick={removeFile}
+                            sx={{
+                                fontSize: '0.85rem',
+                                lineHeight: 1,
+                                color: 'var(--fg-dim)',
+                                cursor: 'pointer',
+                                flexShrink: 0,
+                                '&:hover': { color: 'var(--fg-primary)' },
+                            }}
+                        >
+                            ×
                         </Box>
                     </Box>
                 )}

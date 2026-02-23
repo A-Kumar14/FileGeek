@@ -459,17 +459,14 @@ async def index_session_document(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    import unicodedata
+    from werkzeug.utils import secure_filename
+
     content_type = request.headers.get("content-type", "")
     is_local_upload = "multipart/form-data" in content_type
 
-    if is_local_upload:
-        form = await request.form()
-        uploaded_file = form.get("file")
-        if not uploaded_file:
-            raise HTTPException(status_code=400, detail="No file provided")
-        file_name = uploaded_file.filename
-        file_url = None
-    else:
+    if not is_local_upload:
+        # ── Remote URL path (single file JSON) ──────────────────────────────────
         try:
             data = await request.json()
             file_url = data.get("url")
@@ -477,45 +474,9 @@ async def index_session_document(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON data")
 
-    import unicodedata
-    from werkzeug.utils import secure_filename
-    safe_name = unicodedata.normalize("NFKD", file_name).encode("ascii", "ignore").decode("ascii")
-    document_id = f"{session_id}_{secure_filename(safe_name)}_{datetime.now().strftime('%H%M%S')}"
+        safe_name = unicodedata.normalize("NFKD", file_name).encode("ascii", "ignore").decode("ascii")
+        document_id = f"{session_id}_{secure_filename(safe_name)}_{datetime.now().strftime('%H%M%S')}"
 
-    if is_local_upload:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        saved_filename = f"{timestamp}_{secure_filename(safe_name)}"
-        filepath = os.path.join(Config.UPLOAD_FOLDER, saved_filename)
-        try:
-            content = await uploaded_file.read()
-            with open(filepath, "wb") as f:
-                f.write(content)
-        except Exception as exc:
-            logger.error("document.upload.failed", error=str(exc))
-            raise HTTPException(status_code=500, detail="Failed to save uploaded file")
-
-        # Extract synchronously
-        try:
-            loop = asyncio.get_event_loop()
-            idx_result = await loop.run_in_executor(
-                None,
-                rag_service.index_document,
-                filepath, document_id, session_id, current_user.id
-            )
-            # Create a URL that points to our StaticFiles mount
-            base_url = str(request.base_url).rstrip("/")
-            file_url = f"{base_url}/static/uploads/{saved_filename}"
-            
-            # File stays on disk so frontend can fetch via file_url later
-        except Exception as exc:
-            logger.error("document.local_index.failed", error=str(exc))
-            try:
-                os.remove(filepath)
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail=f"Failed to index local document: {file_name}")
-
-    else:
         allowed_prefixes = ALLOWED_URL_PREFIXES
         if Config.S3_ENABLED and Config.AWS_S3_BUCKET:
             allowed_prefixes = allowed_prefixes + (
@@ -538,20 +499,80 @@ async def index_session_document(
             logger.error("document.index.failed", error=str(exc))
             raise HTTPException(status_code=500, detail=f"Failed to index document: {file_name}")
 
-    doc_record = SessionDocument(
-        session_id=session_id,
-        file_name=file_name,
-        file_type=idx_result.get("file_type", "unknown"),
-        file_url=file_url,
-        chroma_document_id=document_id,
-        chunk_count=idx_result.get("chunk_count", 0),
-        page_count=idx_result.get("page_count", 0),
-    )
-    db.add(doc_record)
-    await db.commit()
-    await db.refresh(doc_record)
+        doc_record = SessionDocument(
+            session_id=session_id,
+            file_name=file_name,
+            file_type=idx_result.get("file_type", "unknown"),
+            file_url=file_url,
+            chroma_document_id=document_id,
+            chunk_count=idx_result.get("chunk_count", 0),
+            page_count=idx_result.get("page_count", 0),
+        )
+        db.add(doc_record)
+        await db.commit()
+        await db.refresh(doc_record)
+        return {"message": "Document indexed", "document": doc_record.to_dict()}
 
-    return {"message": "Document indexed", "document": doc_record.to_dict()}
+    # ── Local multipart upload — supports one or many files ─────────────────────
+    form = await request.form()
+    uploaded_files = form.getlist("file")  # handles both single and multiple
+    if not uploaded_files:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    base_url = str(request.base_url).rstrip("/")
+    loop = asyncio.get_event_loop()
+    indexed_docs = []
+
+    for uploaded_file in uploaded_files:
+        raw_name = uploaded_file.filename or "file"
+        safe_name = unicodedata.normalize("NFKD", raw_name).encode("ascii", "ignore").decode("ascii")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        saved_filename = f"{timestamp}_{secure_filename(safe_name)}"
+        filepath = os.path.join(Config.UPLOAD_FOLDER, saved_filename)
+        document_id = f"{session_id}_{secure_filename(safe_name)}_{timestamp}"
+
+        try:
+            content = await uploaded_file.read()
+            with open(filepath, "wb") as f:
+                f.write(content)
+        except Exception as exc:
+            logger.error("document.upload.failed: %s", exc)
+            raise HTTPException(status_code=500, detail=f"Failed to save file: {raw_name}")
+
+        try:
+            idx_result = await loop.run_in_executor(
+                None,
+                rag_service.index_document,
+                filepath, document_id, session_id, current_user.id,
+            )
+            file_url = f"{base_url}/static/uploads/{saved_filename}"
+        except Exception as exc:
+            logger.error("document.local_index.failed: %s", exc)
+            try:
+                os.remove(filepath)
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail=f"Failed to index: {raw_name}")
+
+        doc_record = SessionDocument(
+            session_id=session_id,
+            file_name=raw_name,
+            file_type=idx_result.get("file_type", "unknown"),
+            file_url=file_url,
+            chroma_document_id=document_id,
+            chunk_count=idx_result.get("chunk_count", 0),
+            page_count=idx_result.get("page_count", 0),
+        )
+        db.add(doc_record)
+        indexed_docs.append(doc_record)
+
+    await db.commit()
+    for doc in indexed_docs:
+        await db.refresh(doc)
+
+    if len(indexed_docs) == 1:
+        return {"message": "Document indexed", "document": indexed_docs[0].to_dict()}
+    return {"message": f"{len(indexed_docs)} documents indexed", "documents": [d.to_dict() for d in indexed_docs]}
 
 
 # ── Messages (SSE streaming) ───────────────────────────────────────────────────
@@ -653,8 +674,15 @@ async def send_session_message(
                 ),
             )
         except Exception as exc:
-            logger.error("ai.failed", error=str(exc))
-            yield f"data: {json.dumps({'error': 'AI response failed'})}\n\n"
+            err_str = str(exc)
+            _vectorstore_keywords = ("chroma", "sqlite", "disk image", "corrupt", "no such table",
+                                     "locked", "vector", "collection")
+            if any(kw in err_str.lower() for kw in _vectorstore_keywords):
+                logger.error("vectorstore.unreachable: %s", err_str)
+                yield f"data: {json.dumps({'error': 'Vector store unavailable. Please re-upload your document and try again.'})}\n\n"
+            else:
+                logger.error("ai.failed: %s", err_str)
+                yield f"data: {json.dumps({'error': 'AI response failed. Please try again.'})}\n\n"
             return
 
         answer = ai_result.get("answer", "")

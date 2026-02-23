@@ -132,9 +132,12 @@ export function ChatProvider({ children }) {
   }, [createSessionMutation]);
 
   const loadSession = useCallback(async (sessionId) => {
+    // Immediately clear stale state so old messages don't flash
+    setMessages([]);
     setActiveSessionId(sessionId);
     setArtifacts([]);
     setSuggestions([]);
+    setLoading(true);
 
     const token = localStorage.getItem('filegeek-token');
     if (token) {
@@ -147,22 +150,26 @@ export function ChatProvider({ children }) {
           } else {
             if (removeFile) removeFile();
           }
-          if (session.messages) {
-            setMessages(session.messages);
-          }
+          setMessages(session.messages || []);
+          setLoading(false);
           return;
         }
       } catch {
-        // Fall back to local
+        // Fall through to local cache
       }
     }
 
-    const localSession = chatSessions.find((s) => s.id === sessionId);
-    if (localSession) {
-      if (removeFile) removeFile();
-      setMessages(localSession.messages || []);
-    }
-  }, [chatSessions, setRemoteFile, removeFile]);
+    // localStorage fallback — avoids stale closure on chatSessions
+    setChatSessions((prev) => {
+      const local = prev.find((s) => s.id === sessionId);
+      if (local) {
+        if (removeFile) removeFile();
+        setMessages(local.messages || []);
+      }
+      return prev;
+    });
+    setLoading(false);
+  }, [setRemoteFile, removeFile]);
 
   const removeSession = useCallback(async (sessionId) => {
     const token = localStorage.getItem('filegeek-token');

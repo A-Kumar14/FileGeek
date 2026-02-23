@@ -20,6 +20,8 @@ const ACCEPTED_TYPES = [
   'audio/ogg',
 ];
 
+const VALID_EXTS = ['pdf', 'docx', 'txt', 'png', 'jpg', 'jpeg', 'mp3', 'wav', 'm4a', 'webm', 'ogg'];
+
 function getFileType(entry) {
   const name = entry?.fileName || entry?.localFile?.name;
   if (!name) return null;
@@ -35,8 +37,8 @@ function getFileType(entry) {
 function createFileEntry(localFile) {
   return {
     localFile,
-    uploadStatus: 'pending',
-    uploadProgress: 0,
+    uploadStatus: 'complete',
+    uploadProgress: 100,
     uploadedUrl: null,
     uploadedKey: null,
     fileName: localFile.name,
@@ -45,36 +47,44 @@ function createFileEntry(localFile) {
   };
 }
 
+function isValidFile(f) {
+  const ext = f.name.split('.').pop().toLowerCase();
+  return VALID_EXTS.includes(ext) || ACCEPTED_TYPES.includes(f.type);
+}
+
 export function FileProvider({ children }) {
-  const [fileEntry, setFileEntry] = useState(null);
+  // Multi-file: store an array of entries
+  const [fileEntries, setFileEntries] = useState([]);
   const [targetPage, setTargetPage] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [activeSourceHighlight, setActiveSourceHighlight] = useState(null);
 
+  // Backward-compat: primary file is always the first entry
+  const fileEntry = fileEntries[0] || null;
   const file = fileEntry?.localFile || fileEntry?.uploadedUrl || null;
   const fileType = getFileType(fileEntry);
 
-  const handleFileSelect = useCallback((selectedFile) => {
-    if (!selectedFile) return;
-    const ext = selectedFile.name.split('.').pop().toLowerCase();
-    const validExts = ['pdf', 'docx', 'txt', 'png', 'jpg', 'jpeg', 'mp3', 'wav', 'm4a', 'webm', 'ogg'];
-    if (!validExts.includes(ext) && !ACCEPTED_TYPES.includes(selectedFile.type)) return;
+  // Accepts a single File, an array of Files, or a FileList
+  const handleFileSelect = useCallback((selectedFiles) => {
+    if (!selectedFiles) return;
+    const list = selectedFiles instanceof FileList
+      ? Array.from(selectedFiles)
+      : Array.isArray(selectedFiles)
+        ? selectedFiles
+        : [selectedFiles];
 
-    const entry = createFileEntry(selectedFile);
+    const valid = list.filter(isValidFile).map(createFileEntry);
+    if (valid.length === 0) return;
 
-    // Auto-mark complete for simple local viewing
-    entry.uploadStatus = 'complete';
-    entry.uploadProgress = 100;
-
-    setFileEntry(entry);
+    setFileEntries(valid);
     setTargetPage(null);
     setCurrentPage(1);
     setTotalPages(0);
   }, []);
 
   const setRemoteFile = useCallback((url, name, type) => {
-    setFileEntry({
+    setFileEntries([{
       localFile: null,
       uploadStatus: 'complete',
       uploadProgress: 100,
@@ -83,14 +93,14 @@ export function FileProvider({ children }) {
       fileName: name || 'Document',
       fileSize: 0,
       fileType: type || 'pdf',
-    });
+    }]);
     setTargetPage(null);
     setCurrentPage(1);
     setTotalPages(0);
   }, []);
 
   const removeFile = useCallback(() => {
-    setFileEntry(null);
+    setFileEntries([]);
     setTargetPage(null);
     setCurrentPage(1);
     setTotalPages(0);
@@ -117,14 +127,15 @@ export function FileProvider({ children }) {
       value={{
         file,
         fileEntry,
-        files: fileEntry ? [fileEntry] : [], // Backwards compatibility for UI components expecting array
+        files: fileEntries,       // now returns ALL entries (was always [fileEntry])
+        fileEntries,              // explicit multi-file access
         fileType,
         activeFileIndex: 0,
         setActiveFileIndex: () => { },
         handleFileSelect,
         setRemoteFile,
         removeFile,
-        retryUpload: () => { }, // No-op
+        retryUpload: () => { },
         targetPage,
         goToPage,
         goToSourcePage,

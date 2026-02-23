@@ -96,6 +96,14 @@ class RAGService:
 
     def query(self, question: str, session_id: str, user_id: int, n_results: int = 5) -> Dict:
         """Session-scoped retrieval. Returns chunks, metas, and image paths."""
+        # Guard: skip expensive ChromaDB call when inputs are clearly invalid
+        if not session_id or not str(user_id).strip():
+            logger.warning("RAG query skipped: missing session_id or user_id")
+            return {"chunks": [], "metas": []}
+        if not question or not question.strip():
+            logger.warning("RAG query skipped: empty question")
+            return {"chunks": [], "metas": []}
+
         try:
             # Primary: compound filter by session_id AND user_id
             filter_dict = {
@@ -134,7 +142,7 @@ class RAGService:
             return {"chunks": chunks, "metas": metas}
 
         except Exception as e:
-            logger.warning(f"RAG query failed: {e}")
+            logger.warning(f"RAG query failed for session={session_id} user={user_id}: {e}")
             return {"chunks": [], "metas": []}
 
     def query_all_sessions(self, question: str, user_id: int, n_results: int = 5) -> Dict:

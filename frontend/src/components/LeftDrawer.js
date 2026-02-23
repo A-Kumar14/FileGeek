@@ -52,9 +52,10 @@ const GROUP_ORDER = ['Today', 'Yesterday', 'Past 7 days', 'Older'];
 
 function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
   const { logout, user } = useAuth();
-  const { removeFile } = useFile();
+  const { handleFileSelect, removeFile } = useFile();
   const { clearMessages, chatSessions, activeSessionId, loadSession, removeSession } = useChatContext();
   const navigate = useNavigate();
+  const uploadInputRef = useRef(null);
   const [search, setSearch] = useState('');
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -99,8 +100,11 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
       setLibraryOpen(true);
       if (onClose && collapsed) onClose();
     } else if (key === 'files') {
+      // Long-press / regular click opens the Files popout; Shift+click triggers upload picker
       setFilesOpen(true);
       if (onClose && collapsed) onClose();
+    } else if (key === 'upload') {
+      uploadInputRef.current?.click();
     } else if (key === 'history') {
       setHistoryHighlighted(true);
       setTimeout(() => setHistoryHighlighted(false), 1500);
@@ -172,6 +176,20 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
           </Tooltip>
         )}
       </Box>
+
+      {/* Hidden multi-file upload input */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          if (e.target.files.length > 0) {
+            handleFileSelect(Array.from(e.target.files));
+            e.target.value = '';          // reset so same files can be re-selected
+          }
+        }}
+      />
 
       {/* ── New Chat — black button like Cortex ── */}
       <Box sx={{ px: collapsed ? 0.75 : 1.25, pt: 0, pb: 0.75, flexShrink: 0 }}>

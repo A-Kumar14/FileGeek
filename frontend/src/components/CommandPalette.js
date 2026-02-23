@@ -115,7 +115,7 @@ export default function CommandPalette({ onOpenDashboard }) {
         label: 'GO_HOME',
         icon: <Home className="w-4 h-4" />,
         category: 'NAVIGATION',
-        action: () => { removeFile(); clearMessages(); },
+        action: () => { removeFile(); clearMessages(); navigate('/'); },
         priority: 95,
       },
 
@@ -211,10 +211,10 @@ export default function CommandPalette({ onOpenDashboard }) {
 
     // ── MODEL SELECTION ────────────────────────────────────────────────────────
     const MODELS = [
-      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', badge: 'FREE' },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', badge: 'FREE' },
-      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', badge: 'PRO' },
-      { id: 'gpt-4o', name: 'GPT-4o', badge: 'PRO' },
+      { id: 'grok-3', name: 'Grok 3', badge: 'DEFAULT' },
+      { id: 'gpt-4o', name: 'GPT-4o', badge: 'OPENAI' },
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', badge: 'OPENAI' },
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', badge: 'GEMINI' },
     ];
     MODELS.forEach((m) => {
       cmds.push({
@@ -276,17 +276,23 @@ export default function CommandPalette({ onOpenDashboard }) {
         label: '/dashboard — Open Document Dashboard',
         icon: <BookOpen className="w-4 h-4" />,
         category: 'SLASH_COMMANDS',
-        action: () => onOpenDashboard?.(),
+        action: () => { if (onOpenDashboard) onOpenDashboard(); else navigate('/explore'); },
         priority: 101,
         isSlash: true,
       },
       // Theme switchers
-      ...['dark', 'light', 'hacker', 'sepia'].map((t) => ({
-        id: `slash-theme-${t}`,
-        label: `/theme ${t} — Switch to ${t.charAt(0).toUpperCase() + t.slice(1)} theme`,
+      ...[
+        { id: 'cortex', label: 'Cortex' },
+        { id: 'brutalist_dark', label: 'Brutalist Dark' },
+        { id: 'paper_white', label: 'Paper White' },
+        { id: 'cyber_amber', label: 'Cyber Amber' },
+        { id: 'solarized', label: 'Solarized' },
+      ].map(({ id, label }) => ({
+        id: `slash-theme-${id}`,
+        label: `/theme ${id} — Switch to ${label} theme`,
         icon: <Palette className="w-4 h-4" />,
         category: 'SLASH_COMMANDS',
-        action: () => setTheme(t),
+        action: () => setTheme(id),
         priority: 98,
         isSlash: true,
       })),
@@ -385,7 +391,7 @@ export default function CommandPalette({ onOpenDashboard }) {
         type="file"
         multiple
         style={{ display: 'none' }}
-        onChange={(e) => handleFileSelect(e.target.files[0])}
+        onChange={(e) => handleFileSelect(e.target.files)}
       />
 
       <Dialog

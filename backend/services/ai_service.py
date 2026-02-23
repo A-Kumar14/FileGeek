@@ -481,14 +481,30 @@ class AIService:
         preference_context: str = "",
     ) -> Dict:
         """Agentic loop: send message, handle tool calls, return final answer + artifacts."""
+        # Models known to not support function/tool calling — fall back to non-agentic flow.
+        _NO_TOOLS_MODELS = {"DeepSeek-R1", "DeepSeek-V3", "o1", "o1-mini", "deepseek-r1", "deepseek-v3"}
+        if model_override and model_override in _NO_TOOLS_MODELS:
+            logger.info("model '%s' does not support tools — using non-agentic answer_from_context", model_override)
+            return {
+                "answer": (
+                    f"[Model {model_override} does not support tool calling. "
+                    "Please switch to Grok-3, GPT-4o, or Gemini 2.0 Flash for full document analysis.]"
+                ),
+                "sources": [],
+                "artifacts": [],
+                "suggestions": [],
+                "message_id": None,
+            }
+
         provider = self.provider
         if model_override:
             if model_override.startswith("gpt") or model_override.startswith("o"):
-                provider = "openai"
+                if self.provider != "poe":
+                    provider = "openai"
             elif model_override.startswith("gemini"):
-                provider = "gemini"
-            else:
-                logger.warning(f"Unmapped model_override '{model_override}', falling back to {provider}")
+                if self.provider != "poe":
+                    provider = "gemini"
+            # poe models (grok-*) stay on poe provider — no change needed
 
         if provider == "gemini":
             return self._agentic_gemini(

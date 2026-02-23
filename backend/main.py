@@ -474,7 +474,6 @@ async def get_library(request: Request, response: Response, current_user: Curren
     # Fetch user preferences via background loop
     loop = asyncio.get_event_loop()
     try:
-        from services.rag_service import memory_service
         prefs = await loop.run_in_executor(
             None, memory_service.get_user_preferences, current_user.id
         )

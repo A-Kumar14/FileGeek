@@ -210,16 +210,18 @@ export default function CommandPalette({ onOpenDashboard }) {
     );
 
     // ── MODEL SELECTION ────────────────────────────────────────────────────────
+    // null = let backend pick its configured default (safest, avoids mismatched model names)
     const MODELS = [
-      { id: 'grok-3', name: 'Grok 3', badge: 'DEFAULT' },
+      { id: null, name: 'Backend Default', badge: 'AUTO' },
       { id: 'gpt-4o', name: 'GPT-4o', badge: 'OPENAI' },
       { id: 'gpt-4o-mini', name: 'GPT-4o Mini', badge: 'OPENAI' },
       { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', badge: 'GEMINI' },
+      { id: 'grok-3', name: 'Grok 3 (Poe)', badge: 'POE' },
     ];
     MODELS.forEach((m) => {
       cmds.push({
-        id: `model-${m.id}`,
-        label: `USE_${m.name.toUpperCase().replace(/[\s.]/g, '_')}`,
+        id: `model-${m.id ?? 'default'}`,
+        label: `USE_${(m.name).toUpperCase().replace(/[\s().]/g, '_')}`,
         icon: <Cpu className="w-4 h-4" />,
         category: 'MODELS',
         action: () => setSelectedModel(m.id),

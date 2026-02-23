@@ -8,8 +8,11 @@ export function useModelContext() {
 
 export function ModelProvider({ children }) {
   const [selectedModel, setSelectedModel] = useState(() => {
-    // Load from localStorage or default to grok-3
-    return localStorage.getItem('filegeek-selected-model') || 'grok-3';
+    // null means "use backend default" — avoids sending a mismatched model name
+    const stored = localStorage.getItem('filegeek-selected-model');
+    // Migrate old "grok-3" default so existing users don't get stuck
+    if (!stored || stored === 'grok-3') return null;
+    return stored;
   });
 
   // Save to localStorage whenever it changes

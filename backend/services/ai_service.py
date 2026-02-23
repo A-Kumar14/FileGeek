@@ -583,8 +583,26 @@ class AIService:
                     tool_choice=_tool_choice,
                 )
             except Exception as e:
-                logger.error(f"OpenAI agentic call failed: {e}")
-                return {"answer": "I encountered an error processing your request.", "sources": [], "artifacts": [], "suggestions": []}
+                # If forced tool_choice caused a 400 (not all OpenAI-compat APIs support it),
+                # retry immediately with "auto" before giving up.
+                if _tool_choice != "auto":
+                    logger.warning(
+                        "Forced tool_choice='%s' failed (%s) — retrying with auto",
+                        _forced_tool, e,
+                    )
+                    try:
+                        response = self.openai_client.chat.completions.create(
+                            model=model,
+                            messages=messages,
+                            tools=TOOL_DEFINITIONS,
+                            tool_choice="auto",
+                        )
+                    except Exception as e2:
+                        logger.error("OpenAI agentic call failed (auto retry): %s", e2, exc_info=True)
+                        return {"answer": "I encountered an error processing your request.", "sources": [], "artifacts": [], "suggestions": []}
+                else:
+                    logger.error("OpenAI agentic call failed: %s", e, exc_info=True)
+                    return {"answer": "I encountered an error processing your request.", "sources": [], "artifacts": [], "suggestions": []}
 
 
             choice = response.choices[0]
@@ -693,7 +711,7 @@ class AIService:
             try:
                 response = model.generate_content(contents)
             except Exception as e:
-                logger.error(f"Gemini agentic call failed: {e}")
+                logger.error("Gemini agentic call failed: %s", e, exc_info=True)
                 return {"answer": "I encountered an error processing your request.", "sources": [], "artifacts": [], "suggestions": []}
 
             # Check for function calls

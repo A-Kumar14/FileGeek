@@ -112,14 +112,16 @@ elif _provider == "gemini":
     AI_PROVIDER = "gemini"
 elif _provider == "openai":
     AI_PROVIDER = "openai"
-elif os.getenv("POE_API_KEY"):
-    AI_PROVIDER = "poe"
+elif os.getenv("OPENAI_API_KEY"):
+    # Prefer OpenAI when available — reliable function/tool calling support.
+    # Poe is still used as a fallback inside the agentic loop if Poe quota is exceeded.
+    AI_PROVIDER = "openai"
 elif os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"):
     AI_PROVIDER = "gemini"
-elif os.getenv("OPENAI_API_KEY"):
-    AI_PROVIDER = "openai"
+elif os.getenv("POE_API_KEY"):
+    AI_PROVIDER = "poe"
 else:
-    AI_PROVIDER = "poe"  # default to poe
+    AI_PROVIDER = "openai"  # will raise a clear error at first use if no key
 
 logger.info(f"AI provider: {AI_PROVIDER}")
 
@@ -252,6 +254,38 @@ class AIService:
                 self._openai_client_instance = _OpenAI(api_key=api_key)
                 
         return self._openai_client_instance
+
+    def _get_fallback_clients(self, model_override: str | None = None) -> list:
+        """Return ordered list of (openai_compatible_client, model_name) to try.
+
+        Primary provider first; other providers appended as fallbacks if their
+        API keys are present.  This lets the system automatically recover when
+        a provider hits quota / rate limits.
+        """
+        from openai import OpenAI as _OAI
+
+        attempts = []
+        primary_model = model_override or self.CHAT_MODEL
+
+        # ── Primary provider ──────────────────────────────────────────────────
+        attempts.append((self.openai_client, primary_model))
+
+        # ── Poe fallback (when primary is OpenAI) ─────────────────────────────
+        if self.provider != "poe":
+            poe_key = os.getenv("POE_API_KEY")
+            if poe_key:
+                attempts.append((
+                    _OAI(base_url="https://api.poe.com/v1", api_key=poe_key),
+                    "grok-3",
+                ))
+
+        # ── OpenAI fallback (when primary is Poe) ─────────────────────────────
+        if self.provider == "poe":
+            oai_key = os.getenv("OPENAI_API_KEY")
+            if oai_key:
+                attempts.append((_OAI(api_key=oai_key), "gpt-4o"))
+
+        return attempts
 
     @property
     def gemini_client(self):
@@ -454,17 +488,23 @@ class AIService:
             else:
                 messages.append({"role": "user", "content": text_part})
 
-            model = model_override or self.OPENAI_CHAT_MODEL
-            response = self.openai_client.chat.completions.create(
-                model=model,
-                messages=messages,
-            )
-            answer = response.choices[0].message.content
-            logger.info(f"OpenAI answered ({len(context_chunks)} chunks, model={model})")
-            return answer
+            # Try each available provider in order (Poe → OpenAI or OpenAI → Poe fallback)
+            for _fb_client, _fb_model in self._get_fallback_clients(model_override):
+                _call_model = model_override or _fb_model
+                try:
+                    response = _fb_client.chat.completions.create(
+                        model=_call_model,
+                        messages=messages,
+                    )
+                    answer = response.choices[0].message.content
+                    logger.info("OpenAI answered (%d chunks, model=%s)", len(context_chunks), _call_model)
+                    return answer
+                except Exception as fb_e:
+                    logger.warning("answer_from_context provider failed model=%s: %s — trying next", _call_model, fb_e)
+            return None
 
         except Exception as e:
-            logger.error(f"OpenAI error: {e}")
+            logger.error("OpenAI error (outer): %s", e, exc_info=True)
             return None
 
     # ── Agentic answer with tool calling ──────────────────────────────
@@ -547,7 +587,9 @@ class AIService:
                 messages.append({"role": entry["role"], "content": entry["content"]})
         messages.append({"role": "user", "content": question})
 
-        model = model_override or self.OPENAI_CHAT_MODEL
+        # Use CHAT_MODEL (provider-aware) not OPENAI_CHAT_MODEL (hardcoded "gpt-4o")
+        model = model_override or self.CHAT_MODEL
+        fallback_clients = self._get_fallback_clients(model_override)
         artifacts = []
         tool_calls_log = []
         max_rounds = 3
@@ -575,34 +617,34 @@ class AIService:
             else:
                 _tool_choice = "auto"
 
-            try:
-                response = self.openai_client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    tools=TOOL_DEFINITIONS,
-                    tool_choice=_tool_choice,
-                )
-            except Exception as e:
-                # If forced tool_choice caused a 400 (not all OpenAI-compat APIs support it),
-                # retry immediately with "auto" before giving up.
-                if _tool_choice != "auto":
-                    logger.warning(
-                        "Forced tool_choice='%s' failed (%s) — retrying with auto",
-                        _forced_tool, e,
-                    )
+            # Try each available provider; fall back when one hits quota / errors.
+            response = None
+            last_err = None
+            for _fb_client, _fb_model in fallback_clients:
+                _call_model = model_override or _fb_model
+                for _tc in ([_tool_choice, "auto"] if _tool_choice != "auto" else ["auto"]):
                     try:
-                        response = self.openai_client.chat.completions.create(
-                            model=model,
+                        response = _fb_client.chat.completions.create(
+                            model=_call_model,
                             messages=messages,
                             tools=TOOL_DEFINITIONS,
-                            tool_choice="auto",
+                            tool_choice=_tc,
                         )
-                    except Exception as e2:
-                        logger.error("OpenAI agentic call failed (auto retry): %s", e2, exc_info=True)
-                        return {"answer": "I encountered an error processing your request.", "sources": [], "artifacts": [], "suggestions": []}
-                else:
-                    logger.error("OpenAI agentic call failed: %s", e, exc_info=True)
-                    return {"answer": "I encountered an error processing your request.", "sources": [], "artifacts": [], "suggestions": []}
+                        last_err = None
+                        break  # success
+                    except Exception as e:
+                        last_err = e
+                        logger.warning(
+                            "agentic call failed provider=%s model=%s tool_choice=%s: %s — trying next",
+                            _fb_client.base_url if hasattr(_fb_client, "base_url") else "?",
+                            _call_model, _tc, e,
+                        )
+                if response is not None:
+                    break  # found a working provider
+
+            if response is None:
+                logger.error("All providers failed for agentic call: %s", last_err, exc_info=True)
+                return {"answer": "I encountered an error processing your request.", "sources": [], "artifacts": [], "suggestions": []}
 
 
             choice = response.choices[0]

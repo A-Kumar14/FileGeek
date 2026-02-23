@@ -133,6 +133,8 @@ engine = create_async_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False},
     echo=False,
+    pool_pre_ping=True,   # Detect stale connections before use — eliminates "not checked in" warnings
+    pool_recycle=3600,    # Recycle connections after 1 hour to avoid ghost handles
 )
 
 AsyncSessionLocal = async_sessionmaker(

@@ -36,9 +36,12 @@ function getFileType(entry) {
 
 function createFileEntry(localFile) {
   return {
+    fileId: typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     localFile,
-    uploadStatus: 'complete',
-    uploadProgress: 100,
+    uploadStatus: 'idle',   // 'idle' | 'uploading' | 'indexing' | 'complete' | 'error'
+    uploadProgress: 0,
     uploadedUrl: null,
     uploadedKey: null,
     fileName: localFile.name,
@@ -107,6 +110,21 @@ export function FileProvider({ children }) {
     setActiveSourceHighlight(null);
   }, []);
 
+  // Alias for removeFile — used by plan/chip UI
+  const clearFile = removeFile;
+
+  /**
+   * Race-condition-safe per-file status update.
+   * Uses functional setState so concurrent updates don't clobber each other.
+   * @param {string} fileId - The stable fileId assigned in createFileEntry()
+   * @param {object} updates - Partial updates to merge into the entry
+   */
+  const updateFileEntryById = useCallback((fileId, updates) => {
+    setFileEntries((prev) =>
+      prev.map((fe) => (fe.fileId === fileId ? { ...fe, ...updates } : fe))
+    );
+  }, []);
+
   const goToPage = useCallback((pageNum) => {
     setTargetPage(pageNum);
   }, []);
@@ -135,6 +153,8 @@ export function FileProvider({ children }) {
         handleFileSelect,
         setRemoteFile,
         removeFile,
+        clearFile,               // alias for removeFile
+        updateFileEntryById,     // race-safe per-file status updater
         retryUpload: () => { },
         targetPage,
         goToPage,

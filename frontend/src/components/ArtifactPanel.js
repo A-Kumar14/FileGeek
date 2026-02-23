@@ -247,7 +247,9 @@ export default function ArtifactPanel() {
   if (!artifacts || artifacts.length === 0) return null;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'var(--bg-primary)' }}>
+    // position:relative + zIndex:0 keeps this panel below MUI Drawer (z:1200)
+    // and GlobalCommandBar (z:1100) on small screens — no accidental overlap.
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'var(--bg-primary)', position: 'relative', zIndex: 0 }}>
       <Box sx={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         px: 2, py: 1, borderBottom: '1px solid var(--border)',

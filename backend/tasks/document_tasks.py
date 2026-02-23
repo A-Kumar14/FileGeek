@@ -1,12 +1,13 @@
 """Async document indexing via Celery."""
 
 import json
+import re
 from datetime import datetime
 
 from celery_app import celery_app
 from celery_db import SyncSession
 from logging_config import get_logger
-from models_async import SessionDocument
+from models_async import ChatMessage, SessionDocument
 from services.ai_service import AIService
 from services.file_service import FileService
 from services.rag_service import RAGService
@@ -82,6 +83,11 @@ def index_document_task(self, session_id, user_id, file_url, file_name):
         logger.info("document.indexed", document_id=document_id, chunks=result.get("chunk_count", 0))
         _publish_progress(task_id, "completed", 100, {"document": doc_dict})
 
+        # Kick off auto-flashcard generation as a chained subtask (best-effort)
+        text_excerpt = result.get("text", "")[:4000]
+        if text_excerpt:
+            auto_generate_flashcards_task.delay(session_id, user_id, text_excerpt)
+
         return {
             "status": "completed",
             "document": doc_dict,
@@ -90,4 +96,57 @@ def index_document_task(self, session_id, user_id, file_url, file_name):
     except Exception as exc:
         logger.error("document.index.failed", error=str(exc), session_id=session_id)
         _publish_progress(task_id, "failure", 0, {"error": str(exc)})
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(bind=True, max_retries=1, default_retry_delay=10)
+def auto_generate_flashcards_task(self, session_id, user_id, text_excerpt):
+    """
+    Celery subtask: auto-generate 5 study flashcards from document text and
+    store them as a system assistant message in the session.
+
+    Triggered automatically after successful document indexing.
+    """
+    try:
+        raw_answer = ai_service.answer_from_context(
+            context_chunks=[text_excerpt],
+            question=(
+                "Generate exactly 5 concise study flashcards from this document content. "
+                "Return ONLY a valid JSON array, no other text: "
+                '[{"front": "term or question", "back": "definition or answer"}, ...]'
+            ),
+            chat_history=[],
+        )
+        if not raw_answer:
+            return {"status": "skipped", "reason": "empty AI response"}
+
+        json_match = re.search(r'\[.*\]', raw_answer, re.DOTALL)
+        if not json_match:
+            logger.warning("auto_flashcards.no_json session=%s", session_id)
+            return {"status": "skipped", "reason": "no JSON array in response"}
+
+        cards = json.loads(json_match.group())
+        if not isinstance(cards, list) or len(cards) == 0:
+            return {"status": "skipped", "reason": "empty cards list"}
+
+        with SyncSession() as db_session:
+            msg = ChatMessage(
+                session_id=session_id,
+                role="assistant",
+                content="I've prepared some starter flashcards from your document!",
+                artifacts_json=json.dumps([{
+                    "type": "flashcards",
+                    "artifact_type": "flashcards",
+                    "cards": cards[:10],
+                }]),
+            )
+            db_session.add(msg)
+            db_session.commit()
+            logger.info(
+                "auto_flashcards.created session=%s cards=%d", session_id, len(cards[:10])
+            )
+            return {"status": "completed", "cards": len(cards[:10])}
+
+    except Exception as exc:
+        logger.warning("auto_flashcards.failed session=%s: %s", session_id, exc)
         raise self.retry(exc=exc)

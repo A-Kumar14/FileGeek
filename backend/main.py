@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -14,8 +15,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import (
-    Depends, FastAPI, HTTPException, Request, Response, UploadFile,
-    status,
+    BackgroundTasks, Depends, FastAPI, File, Form, HTTPException,
+    Request, Response, UploadFile, status,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -27,7 +28,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Config
-from database import get_db, init_db
+from database import get_db, init_db, AsyncSessionLocal
 from socket_manager import socket_app
 from dependencies import CurrentUser, DB, get_current_user
 from models_async import (
@@ -98,6 +99,44 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="FileGeek API", version="5.0.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# ── Global exception handlers — DB corruption + catch-all ──────────────────────
+@app.exception_handler(sqlite3.DatabaseError)
+async def sqlite_db_error_handler(request: Request, exc: sqlite3.DatabaseError):
+    """Return a clean 503 instead of a stack trace when SQLite is corrupted."""
+    logger.critical("sqlite.DatabaseError path=%s: %s", request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": "System maintenance in progress. Please try again shortly.",
+            "code": "DB_MAINTENANCE",
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all: convert DB-corruption errors to 503; all others to clean 500."""
+    if isinstance(exc, HTTPException):
+        raise exc  # let FastAPI handle these normally
+    err_lower = str(exc).lower()
+    _db_keywords = ("disk image is malformed", "database is locked", "no such table",
+                    "malformed", "database disk image")
+    if any(k in err_lower for k in _db_keywords):
+        logger.critical("db.corruption path=%s: %s", request.url.path, exc)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "System maintenance in progress. Please try again shortly.",
+                "code": "DB_MAINTENANCE",
+            },
+        )
+    logger.error("unhandled_exception path=%s: %s", request.url.path, exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "An unexpected server error occurred. Please try again."},
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -175,6 +214,63 @@ def _check_etag(request: Request, etag: str) -> bool:
     return request.headers.get("if-none-match") == etag
 
 
+# ── Background task helpers ────────────────────────────────────────────────────
+async def _auto_generate_flashcards(session_id: str, user_id: int, text_excerpt: str):
+    """
+    Background task: automatically generate 5 study flashcards after a document
+    is indexed and store them as a system assistant message in the session.
+    Uses the document text directly — no RAG query needed since the text is fresh.
+    """
+    async with AsyncSessionLocal() as db:
+        try:
+            prompt = (
+                "Based on the document excerpt below, generate exactly 5 concise flashcards "
+                "for effective studying. Return ONLY a valid JSON array with no extra text, "
+                "in this format: "
+                '[{"front": "question or term", "back": "answer or definition"}, ...]\n\n'
+                f"Document excerpt:\n{text_excerpt[:3000]}"
+            )
+            loop = asyncio.get_event_loop()
+            raw_answer = await loop.run_in_executor(
+                None,
+                lambda: ai_service.answer_from_context(
+                    context_chunks=[text_excerpt[:3000]],
+                    question=(
+                        "Generate 5 study flashcards from this document content. "
+                        "Return ONLY a JSON array of {front, back} objects."
+                    ),
+                    chat_history=[],
+                ),
+            )
+            if not raw_answer:
+                return
+
+            # Extract JSON array from the model's response (tolerant of markdown fences)
+            json_match = re.search(r'\[.*\]', raw_answer, re.DOTALL)
+            if not json_match:
+                logger.warning("auto_flashcards.no_json session=%s", session_id)
+                return
+            cards = json.loads(json_match.group())
+            if not isinstance(cards, list) or len(cards) == 0:
+                return
+
+            msg = ChatMessage(
+                session_id=session_id,
+                role="assistant",
+                content="I've prepared some starter flashcards from your document to help you get started!",
+                artifacts_json=json.dumps([{
+                    "type": "flashcards",
+                    "artifact_type": "flashcards",
+                    "cards": cards[:10],  # cap at 10
+                }]),
+            )
+            db.add(msg)
+            await db.commit()
+            logger.info("auto_flashcards.created session=%s cards=%d", session_id, len(cards[:10]))
+        except Exception as exc:
+            logger.warning("auto_flashcards.failed session=%s: %s", session_id, exc)
+
+
 # ── Health & Personas ──────────────────────────────────────────────────────────
 @app.get("/health")
 async def health_check():
@@ -197,7 +293,11 @@ async def health_check():
     except Exception as exc:
         logger.warning("health.redis.down", error=str(exc))
 
+    embedding_check = rag_service.check_embedding_dimensions()
     overall = "healthy" if chroma_ok else "degraded"
+    if embedding_check.get("status") == "mismatch":
+        overall = "degraded"
+
     return {
         "status": overall,
         "timestamp": datetime.now().isoformat(),
@@ -205,6 +305,7 @@ async def health_check():
         "celery_available": _celery_available,
         "chromadb": "ok" if chroma_ok else "unavailable",
         "redis": "ok" if redis_ok else "unavailable",
+        "embeddings": embedding_check,
     }
 
 
@@ -441,6 +542,30 @@ async def delete_session(session_id: str, current_user: CurrentUser, db: DB):
     return {"message": "Session deleted"}
 
 
+# ── Semantic Related Documents ─────────────────────────────────────────────────
+@app.get("/sessions/{session_id}/related")
+@limiter.limit("30/minute")
+async def get_related_documents(
+    request: Request,
+    session_id: str,
+    current_user: CurrentUser,
+    db: DB,
+):
+    """
+    Return semantically related documents from OTHER sessions by querying shared
+    semantic clusters across the user's entire corpus (user_id scope).
+    """
+    related_raw = await rag_service.find_related_documents_async(session_id, current_user.id)
+    enriched = []
+    for item in related_raw:
+        sess = await db.get(StudySession, item["session_id"])
+        enriched.append({
+            **item,
+            "session_title": sess.title if sess else "Unknown Session",
+        })
+    return {"related": enriched}
+
+
 # ── Documents ──────────────────────────────────────────────────────────────────
 @app.post("/sessions/{session_id}/documents", status_code=202)
 @limiter.limit("20/minute")
@@ -449,6 +574,7 @@ async def index_session_document(
     request: Request,
     current_user: CurrentUser,
     db: DB,
+    background_tasks: BackgroundTasks,
 ):
     result = await db.execute(
         select(StudySession).where(
@@ -522,6 +648,7 @@ async def index_session_document(
     base_url = str(request.base_url).rstrip("/")
     loop = asyncio.get_event_loop()
     indexed_docs = []
+    _first_indexed_text = ""  # captured for auto-flashcard background task
 
     for uploaded_file in uploaded_files:
         raw_name = uploaded_file.filename or "file"
@@ -546,6 +673,9 @@ async def index_session_document(
                 filepath, document_id, session_id, current_user.id,
             )
             file_url = f"{base_url}/static/uploads/{saved_filename}"
+            # Capture text from the first file for auto-flashcard generation
+            if not _first_indexed_text:
+                _first_indexed_text = idx_result.get("text", "")
         except Exception as exc:
             logger.error("document.local_index.failed: %s", exc)
             try:
@@ -554,10 +684,18 @@ async def index_session_document(
                 pass
             raise HTTPException(status_code=500, detail=f"Failed to index: {raw_name}")
 
+        # Detect file type from extension (index_document doesn't return file_type)
+        _ext = os.path.splitext(raw_name.lower())[1].lstrip(".")
+        _type_map = {
+            "pdf": "pdf", "docx": "docx", "txt": "txt",
+            "png": "image", "jpg": "image", "jpeg": "image",
+            "mp3": "audio", "wav": "audio", "m4a": "audio",
+            "webm": "audio", "ogg": "audio",
+        }
         doc_record = SessionDocument(
             session_id=session_id,
             file_name=raw_name,
-            file_type=idx_result.get("file_type", "unknown"),
+            file_type=_type_map.get(_ext, idx_result.get("file_type", "unknown")),
             file_url=file_url,
             chroma_document_id=document_id,
             chunk_count=idx_result.get("chunk_count", 0),
@@ -569,6 +707,12 @@ async def index_session_document(
     await db.commit()
     for doc in indexed_docs:
         await db.refresh(doc)
+
+    # Auto-generate flashcards in the background using the first document's text
+    if indexed_docs and _first_indexed_text:
+        background_tasks.add_task(
+            _auto_generate_flashcards, session_id, current_user.id, _first_indexed_text
+        )
 
     if len(indexed_docs) == 1:
         return {"message": "Document indexed", "document": indexed_docs[0].to_dict()}
@@ -1250,8 +1394,21 @@ async def get_analytics_summary(current_user: CurrentUser, db: DB):
 @app.post("/transcribe")
 @limiter.limit("10/minute")
 async def transcribe_audio(
-    request: Request, file: UploadFile, current_user: CurrentUser, db: DB
+    request: Request,
+    file: UploadFile = File(...),
+    session_id: str = Form(None),
+    synthesize: bool = Form(False),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: DB = Depends(get_db),
 ):
+    """
+    Transcribe an audio file. Optionally synthesize the transcript with the
+    session's document context to produce a structured Research Note artifact.
+
+    Extra form fields (all optional):
+      - session_id: link to an existing session for RAG context
+      - synthesize: if true AND session_id is set, generates a Research Note
+    """
     filename = file.filename or ""
     ext = os.path.splitext(filename.lower())[1]
     if ext not in Config.ALLOWED_AUDIO_EXTENSIONS:
@@ -1280,6 +1437,48 @@ async def transcribe_audio(
             transcript = openai_client.audio.transcriptions.create(
                 model="whisper-1", file=audio_file, response_format="text"
             )
+
+        # ── Optional: Voice-to-Research Synthesis ──────────────────────────────
+        if synthesize and session_id and transcript:
+            try:
+                rag_result = await rag_service.query_async(
+                    transcript, session_id, current_user.id, n_results=5
+                )
+                if rag_result["chunks"]:
+                    synthesis_prompt = (
+                        f"The user recorded the following voice note:\n\"{transcript}\"\n\n"
+                        "Here are relevant excerpts from their uploaded documents:\n"
+                        + "\n---\n".join(rag_result["chunks"][:3])
+                        + "\n\nCreate a structured Research Note that connects the voice "
+                          "note with the document evidence. Include three sections: "
+                          "**Key Points**, **Supporting Evidence**, and **Synthesis**."
+                    )
+                    loop = asyncio.get_event_loop()
+                    research_note = await loop.run_in_executor(
+                        None,
+                        lambda: ai_service.answer_from_context(
+                            context_chunks=rag_result["chunks"][:3],
+                            question=synthesis_prompt,
+                            chat_history=[],
+                        ),
+                    )
+                    sources = rag_service.build_sources(
+                        rag_result["chunks"], rag_result["metas"]
+                    )
+                    return {
+                        "transcript": transcript,
+                        "research_note": research_note,
+                        "sources": sources,
+                        "artifact": {
+                            "type": "research_note",
+                            "artifact_type": "research_note",
+                            "content": research_note,
+                        },
+                    }
+            except Exception as synth_exc:
+                logger.warning("transcribe.synthesis.failed: %s", synth_exc)
+                # Fall through — return plain transcript
+
         return {"transcript": transcript}
     finally:
         try:

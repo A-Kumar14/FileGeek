@@ -35,6 +35,9 @@ export function ChatProvider({ children }) {
   const phaseTimerRef = useRef(null);
   const localStorageDebounceRef = useRef(null);
   const stopGenerationRef = useRef(false);
+  // Generation counter — prevents stale loadSession() responses from overwriting
+  // a newer session's messages when the user switches sessions rapidly.
+  const loadGenRef = useRef(0);
 
   const { sendMessage: apiSendMessage } = useChat();
   const fileCtx = useFile();
@@ -132,6 +135,13 @@ export function ChatProvider({ children }) {
   }, [createSessionMutation]);
 
   const loadSession = useCallback(async (sessionId) => {
+    // Skip redundant refetch if the session is already loaded
+    if (sessionId === activeSessionId && messages.length > 0) return;
+
+    // Increment generation — any in-flight load for a previous call will see
+    // gen !== loadGenRef.current and discard its results (race-condition fix).
+    const gen = ++loadGenRef.current;
+
     // Immediately clear stale state so old messages don't flash
     setMessages([]);
     setActiveSessionId(sessionId);
@@ -143,6 +153,8 @@ export function ChatProvider({ children }) {
     if (token) {
       try {
         const session = await apiGetSession(sessionId);
+        // Discard if a newer loadSession() has been called since we started
+        if (gen !== loadGenRef.current) return;
         if (session) {
           if (session.documents && session.documents.length > 0) {
             const doc = session.documents[0];
@@ -156,11 +168,13 @@ export function ChatProvider({ children }) {
         }
       } catch {
         // Fall through to local cache
+        if (gen !== loadGenRef.current) return;
       }
     }
 
     // localStorage fallback — avoids stale closure on chatSessions
     setChatSessions((prev) => {
+      if (gen !== loadGenRef.current) return prev; // still guard
       const local = prev.find((s) => s.id === sessionId);
       if (local) {
         if (removeFile) removeFile();
@@ -169,7 +183,7 @@ export function ChatProvider({ children }) {
       return prev;
     });
     setLoading(false);
-  }, [setRemoteFile, removeFile]);
+  }, [setRemoteFile, removeFile, activeSessionId, messages.length]);
 
   const removeSession = useCallback(async (sessionId) => {
     const token = localStorage.getItem('filegeek-token');

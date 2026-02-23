@@ -215,6 +215,96 @@ class RAGService:
             None, self.index_from_url, url, name, document_id, session_id, user_id
         )
 
+    def find_related_documents(self, session_id: str, user_id: int, n: int = 5) -> List[dict]:
+        """
+        Semantic cross-document linking: find documents from OTHER sessions of the same
+        user that share similar semantic clusters with the current session.
+
+        Strategy: sample representative embeddings from the current session's stored
+        chunks, then use those embeddings as query vectors against all other sessions
+        owned by the same user. No re-embedding cost — reuses stored vectors directly.
+        """
+        try:
+            # 1. Get representative chunks (with embeddings) from the current session
+            sample = self.collection.get(
+                where={"$and": [{"session_id": session_id}, {"user_id": str(user_id)}]},
+                limit=5,
+                include=["embeddings", "documents", "metadatas"],
+            )
+            if not sample.get("embeddings") or not sample["embeddings"]:
+                return []
+
+            related: List[dict] = []
+            seen_sessions: set = set()
+
+            for emb, doc_text in zip(sample["embeddings"][:3], sample["documents"][:3]):
+                results = self.collection.query(
+                    query_embeddings=[emb],
+                    n_results=n + 2,
+                    where={"$and": [
+                        {"user_id": str(user_id)},
+                        {"session_id": {"$ne": session_id}},
+                    ]},
+                    include=["documents", "metadatas", "distances"],
+                )
+                for rdoc, rmeta, rdist in zip(
+                    results["documents"][0],
+                    results["metadatas"][0],
+                    results["distances"][0],
+                ):
+                    sid = rmeta.get("session_id")
+                    if sid and sid not in seen_sessions:
+                        seen_sessions.add(sid)
+                        related.append({
+                            "session_id": sid,
+                            "excerpt": rdoc[:200].strip(),
+                            "similarity": round(max(0.0, 1.0 - float(rdist)), 3),
+                            "pages": json.loads(rmeta.get("pages", "[]")),
+                        })
+
+            return sorted(related, key=lambda x: x["similarity"], reverse=True)[:n]
+
+        except Exception as exc:
+            logger.warning("RAG.find_related_documents failed session=%s user=%s: %s", session_id, user_id, exc)
+            return []
+
+    async def find_related_documents_async(self, session_id: str, user_id: int, n: int = 5) -> List[dict]:
+        """Async wrapper around find_related_documents()."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.find_related_documents, session_id, user_id, n)
+
+    def check_embedding_dimensions(self) -> dict:
+        """
+        Detect embedding dimension mismatches between what is currently stored in
+        ChromaDB and the dimensions expected by the active AI provider.
+
+        Gemini text-embedding-004 → 768 dims
+        OpenAI text-embedding-3-small → 1536 dims
+
+        Returns a status dict that is included in /health responses.
+        """
+        expected = 768 if "gemini" in str(type(self.ai_service.embeddings)).lower() else 1536
+        try:
+            sample = self.collection.get(limit=1, include=["embeddings"])
+            embeddings = sample.get("embeddings") or []
+            if not embeddings or len(embeddings) == 0:
+                return {"status": "ok", "message": "No vectors stored yet — mismatch check skipped."}
+            actual = len(embeddings[0])
+            if actual != expected:
+                return {
+                    "status": "mismatch",
+                    "message": (
+                        f"Stored vectors are {actual}-dimensional but the current provider "
+                        f"expects {expected}d. "
+                        f"Delete backend/chroma_data/ and re-upload all documents."
+                    ),
+                    "actual_dims": actual,
+                    "expected_dims": expected,
+                }
+            return {"status": "ok", "dimensions": actual}
+        except Exception as exc:
+            return {"status": "unknown", "error": str(exc)}
+
     def build_sources(self, chunks: List[str], metas: List[dict]) -> List[dict]:
         """Build source citation list from RAG results."""
         sources = []

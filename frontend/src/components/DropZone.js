@@ -13,7 +13,8 @@ export default function DropZone() {
     (e) => {
       e.preventDefault();
       setDragOver(false);
-      handleFileSelect(e.dataTransfer.files[0]);
+      const dropped = Array.from(e.dataTransfer.files);
+      if (dropped.length > 0) handleFileSelect(dropped);
     },
     [handleFileSelect]
   );
@@ -50,9 +51,13 @@ export default function DropZone() {
       <input
         ref={fileInputRef}
         type="file"
+        multiple
         accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.mp3,.wav,.m4a,.webm,.ogg"
         style={{ display: 'none' }}
-        onChange={(e) => handleFileSelect(e.target.files[0])}
+        onChange={(e) => {
+          const picked = Array.from(e.target.files);
+          if (picked.length > 0) handleFileSelect(picked);
+        }}
       />
 
       <Box
@@ -89,25 +94,32 @@ export default function DropZone() {
         <span>IMG</span>
       </Box>
 
-      {activeEntry && (
+      {files.length > 0 && (
         <Box sx={{ width: '100%', maxWidth: 400, mt: 4, px: 2 }}>
-          <Stack
-            direction="row"
-            alignItems="center"
-            spacing={1}
-            sx={{
-              mt: 1,
-              px: 1.5,
-              py: 0.5,
-              border: '1px solid var(--success)',
-              bgcolor: 'rgba(5,150,105,0.06)',
-              borderRadius: '8px',
-            }}
-          >
-            <Typography variant="caption" sx={{ color: 'var(--success)', fontFamily: 'var(--font-family)' }} noWrap>
-              {activeEntry.fileName} ready
+          {files.slice(0, 3).map((entry, i) => (
+            <Stack
+              key={entry.fileId || i}
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              sx={{
+                mt: i === 0 ? 1 : 0.5,
+                px: 1.5, py: 0.4,
+                border: '1px solid var(--success)',
+                bgcolor: 'rgba(5,150,105,0.06)',
+                borderRadius: '8px',
+              }}
+            >
+              <Typography variant="caption" sx={{ color: 'var(--success)', fontFamily: 'var(--font-family)' }} noWrap>
+                {entry.fileName} ready
+              </Typography>
+            </Stack>
+          ))}
+          {files.length > 3 && (
+            <Typography variant="caption" sx={{ color: 'var(--fg-dim)', fontFamily: 'var(--font-family)', pl: 1.5 }}>
+              +{files.length - 3} more
             </Typography>
-          </Stack>
+          )}
         </Box>
       )}
     </Box>

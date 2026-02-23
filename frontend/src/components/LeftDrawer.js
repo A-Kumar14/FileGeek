@@ -60,6 +60,7 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [historyHighlighted, setHistoryHighlighted] = useState(false);
+  const [loadingSessionId, setLoadingSessionId] = useState(null);
   const historyRef = useRef(null);
 
   const initials = user?.name
@@ -78,7 +79,11 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
   };
 
   const handleSessionClick = (sessionId) => {
-    if (loadSession) loadSession(sessionId);
+    if (sessionId === activeSessionId) return; // already loaded
+    setLoadingSessionId(sessionId);
+    if (loadSession) {
+      Promise.resolve(loadSession(sessionId)).finally(() => setLoadingSessionId(null));
+    }
     if (onClose) onClose();
   };
 
@@ -279,6 +284,7 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
               )}
               {items.slice(0, 25).map((session) => {
                 const isActive = session.id === activeSessionId;
+                const isLoading = session.id === loadingSessionId;
                 const title = session.title || 'Untitled chat';
                 const isExplore = session.session_type === 'explore';
                 const SessionIcon = isExplore ? LanguageIcon : ChatBubbleOutlineIcon;
@@ -314,6 +320,17 @@ function SidebarContent({ onClose, collapsed, onCollapse, onOpenSettings }) {
                             noWrap: true,
                           }}
                         />
+                        {isLoading && (
+                          <Box sx={{
+                            width: 6, height: 6, borderRadius: '50%',
+                            bgcolor: 'var(--accent)', flexShrink: 0, ml: 0.5,
+                            animation: 'pulse 1s ease-in-out infinite',
+                            '@keyframes pulse': {
+                              '0%, 100%': { opacity: 1 },
+                              '50%': { opacity: 0.25 },
+                            },
+                          }} />
+                        )}
                         <Tooltip title="Delete session">
                           <Box
                             className="session-delete-btn"

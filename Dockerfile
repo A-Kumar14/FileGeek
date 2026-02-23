@@ -21,6 +21,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY backend/ ./backend/
 
+# Copy entrypoint script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 # Create required directories
 RUN mkdir -p backend/uploads backend/instance backend/chroma_data
 
@@ -33,9 +37,13 @@ ENV PYTHONPATH=/app/backend
 ENV PORT=10000
 EXPOSE ${PORT}
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+# Health check — give extra start-period so startup_check has time to run
+HEALTHCHECK --interval=30s --timeout=30s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Run with gunicorn + uvicorn worker (FastAPI production server)
-CMD gunicorn -w 1 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:${PORT} --timeout 120
+# Entrypoint: runs startup_check.py first, then hands off to CMD
+# If startup_check.py fails (missing env vars), container exits with code 1
+# and Render marks the deploy as failed — no crash loop.
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "main:app", \
+     "--bind", "0.0.0.0:10000", "--timeout", "120"]

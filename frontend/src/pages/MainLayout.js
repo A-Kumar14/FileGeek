@@ -1,25 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Tab, Tabs, Dialog, DialogContent, Typography, useMediaQuery, useTheme, IconButton } from '@mui/material';
+import { Box, Dialog, DialogContent, Typography, useMediaQuery, useTheme, IconButton } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import ChatPanel from '../components/ChatPanel';
-import FileViewer from '../components/FileViewer';
 import CommandPalette from '../components/CommandPalette';
 import SettingsContent from './SettingsContent';
 import ArtifactPanel from '../components/ArtifactPanel';
 import GlobalCommandBar from '../components/GlobalCommandBar';
 import LeftDrawer from '../components/LeftDrawer';
-import { useFile } from '../contexts/FileContext';
 import { useChatContext } from '../contexts/ChatContext';
 
 
 export default function MainLayout() {
-  const { file, fileType, removeFile, targetPage, reportPageChange } = useFile();
-  const { clearMessages, artifacts, messages } = useChatContext();
+  const { artifacts } = useChatContext();
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
-  const [mobileTab, setMobileTab] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -36,47 +32,7 @@ export default function MainLayout() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const handleRemoveFile = () => {
-    removeFile();
-    clearMessages();
-  };
-
   const hasArtifacts = artifacts && artifacts.length > 0;
-  const hasMessages = messages && messages.length > 0;
-  // Show chat column only when there are messages (or when no file is loaded)
-  const showChatColumn = !file || hasMessages;
-
-  // File viewer panel header + content
-  const fileViewerContent = (
-    <>
-      {/* File header bar — filename + Remove button */}
-      <Box sx={{
-        display: 'flex', alignItems: 'center', gap: 0.5,
-        px: 1.5, py: 0.65,
-        borderBottom: '1px solid var(--border)',
-        bgcolor: 'var(--bg-secondary)',
-        flexShrink: 0, minWidth: 0,
-      }}>
-        <Typography noWrap sx={{ flex: 1, fontSize: '0.8rem', fontWeight: 500, color: 'var(--fg-secondary)', fontFamily: 'var(--font-family)' }}>
-          {file?.name || 'Document'}
-        </Typography>
-        <Box
-          onClick={handleRemoveFile}
-          sx={{
-            cursor: 'pointer', flexShrink: 0,
-            border: '1px solid var(--border)',
-            px: 1.25, py: 0.35, borderRadius: '8px',
-            fontSize: '0.7rem', fontWeight: 600,
-            color: 'var(--fg-secondary)', whiteSpace: 'nowrap',
-            '&:hover': { borderColor: 'var(--error)', color: 'var(--error)' },
-          }}
-        >
-          Remove file
-        </Box>
-      </Box>
-      <FileViewer file={file} fileType={fileType} targetPage={targetPage} onPageChange={reportPageChange} />
-    </>
-  );
 
   return (
     <Box sx={{
@@ -111,45 +67,11 @@ export default function MainLayout() {
                 FileGeek
               </Typography>
             </Box>
-            {file && (
-              <Typography noWrap sx={{ fontSize: '0.75rem', color: 'var(--fg-dim)', ml: 0.5, flex: 1 }}>
-                {file.name}
-              </Typography>
-            )}
           </Box>
 
-          {file && (
-            <Tabs
-              value={mobileTab}
-              onChange={(_, v) => setMobileTab(v)}
-              centered
-              sx={{
-                minHeight: 36, borderBottom: '1px solid var(--border)',
-                '& .MuiTab-root': {
-                  minHeight: 36, py: 0.5, fontSize: '0.82rem',
-                  fontFamily: 'var(--font-family)', textTransform: 'none',
-                  color: 'var(--fg-secondary)', '&.Mui-selected': { color: 'var(--accent)' },
-                },
-                '& .MuiTabs-indicator': { backgroundColor: 'var(--accent)' },
-              }}
-            >
-              <Tab label="Document" />
-              <Tab label="Chat" />
-            </Tabs>
-          )}
-
           <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            {file && (
-              <Box sx={{
-                display: mobileTab !== 0 ? 'none' : 'flex',
-                flexDirection: 'column', position: 'relative',
-                flex: 1, minHeight: 0, bgcolor: 'var(--bg-primary)',
-              }}>
-                {fileViewerContent}
-              </Box>
-            )}
             <Box sx={{
-              display: file && mobileTab !== 1 ? 'none' : 'flex',
+              display: 'flex',
               flexDirection: 'column', flex: 1, minHeight: 0, bgcolor: 'var(--bg-primary)',
             }}>
               <ChatPanel />
@@ -194,38 +116,15 @@ export default function MainLayout() {
             height: '100%',
             overflow: 'hidden',
           }}>
-            {/* File viewer — full width until first message, then fixed 460px right column appears */}
-            {file && (
-              <Box
-                role="region"
-                aria-label="Document viewer"
-                sx={{
-                  flex: 1,
-                  minWidth: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  height: '100%',
-                  overflow: 'hidden',
-                  borderRight: showChatColumn ? '1px solid var(--border)' : 'none',
-                  bgcolor: 'var(--bg-primary)',
-                  transition: 'border 0.2s ease',
-                }}
-              >
-                {fileViewerContent}
-              </Box>
-            )}
-
-            {/* Chat panel + artifacts — only visible after first message (or no file) */}
-            {showChatColumn && (
-              <Box sx={{
+            {/* Chat panel + artifacts — always full width */}
+            <Box sx={{
                 display: 'flex',
                 flexDirection: 'column',
                 height: '100%',
                 minHeight: 0,
                 overflow: 'hidden',
                 bgcolor: 'var(--bg-primary)',
-                width: file ? 460 : '100%',
-                flex: file ? '0 0 460px' : 1,
+                flex: 1,
               }}>
                 <Box
                   id="main-content"
@@ -252,7 +151,6 @@ export default function MainLayout() {
                   </Box>
                 )}
               </Box>
-            )}
           </Box>
         </Box>
       )}

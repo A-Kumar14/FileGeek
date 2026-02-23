@@ -89,11 +89,37 @@ def _ensure_healthy_db() -> None:
     """
     Called once at startup (sync).  If the SQLite file exists and fails an
     integrity check, attempt recovery before the async engine touches it.
+
+    Stale WAL/SHM files are the most common cause of "disk image is malformed"
+    errors on restart after a hard kill.  We attempt a WAL checkpoint (which
+    flushes WAL frames back into the main file) before running integrity_check.
+    If that fails we fall back to the full _recover_or_reset path.
     """
     db_path = _get_sqlite_path()
     if not db_path or not os.path.exists(db_path):
         return  # nothing to check; engine will create it
 
+    # Step 1: attempt WAL checkpoint to recover any uncommitted WAL frames
+    wal_path = db_path + "-wal"
+    shm_path = db_path + "-shm"
+    if os.path.exists(wal_path):
+        try:
+            con = sqlite3.connect(db_path, timeout=5)
+            con.execute("PRAGMA wal_checkpoint(FULL)")
+            con.close()
+            logger.info("database.wal_checkpoint.ok")
+        except Exception as wal_exc:
+            logger.warning("database.wal_checkpoint.failed: %s", wal_exc)
+            # Remove stale WAL/SHM so they don't corrupt the integrity check
+            for stale in (wal_path, shm_path):
+                try:
+                    if os.path.exists(stale):
+                        os.remove(stale)
+                        logger.warning("database.stale_wal_removed: %s", stale)
+                except Exception:
+                    pass
+
+    # Step 2: integrity check; recover if corrupted
     if not _is_db_healthy(db_path):
         logger.error("database.disk_image_malformed — attempting recovery")
         _recover_or_reset(db_path)
@@ -125,6 +151,11 @@ async def init_db():
     """Create all tables and enable WAL mode for SQLite."""
     async with engine.begin() as conn:
         if DATABASE_URL.startswith("sqlite"):
-            await conn.execute(text("PRAGMA journal_mode=WAL"))
+            try:
+                await conn.execute(text("PRAGMA journal_mode=WAL"))
+            except Exception as wal_exc:
+                # WAL switch failing at startup must never crash the server —
+                # the database is still fully usable in the default rollback-journal mode.
+                logger.warning("database.wal_mode.failed (non-fatal): %s", wal_exc)
         from models_async import Base as ModelsBase  # noqa: F401
         await conn.run_sync(ModelsBase.metadata.create_all)

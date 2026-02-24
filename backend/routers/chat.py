@@ -1,13 +1,17 @@
 """
 routers/chat.py — SSE streaming chat endpoint and message feedback.
-Handles the agentic RAG pipeline: retrieval → tool loop → response stream.
+
+The agentic pipeline now uses chat_engine.generate_response() directly (async).
+No threading.Thread, no queue.Queue — those are gone.
+
+Heartbeat strategy: asyncio.create_task() + asyncio.wait_for(shield()) so that
+SSE keep-alive pings flow every HEARTBEAT_INTERVAL seconds while the LLM thinks,
+preventing reverse-proxy idle-connection timeouts (Render, Cloudflare).
 """
 
 import asyncio
 import json
-import queue
 import re
-import threading
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request
@@ -21,12 +25,14 @@ from logging_config import get_logger
 from models_async import ChatMessage, SessionDocument, StudySession
 from schemas import ChatMessageCreate, FeedbackCreate
 from services.ai_service import AIService
-from services.registry import ai_service, tool_executor, memory_service
+from services.registry import chat_engine, memory_service
 from utils.cache import get_redis
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["chat"])
 limiter = Limiter(key_func=get_remote_address)
+
+_HEARTBEAT_INTERVAL = 10   # seconds between keep-alive pings
 
 
 @router.post("/sessions/{session_id}/messages")
@@ -71,15 +77,14 @@ async def send_session_message(
 
     # Generate title in the background so it doesn't block the SSE stream
     if session.title in ["New Chat", "Untitled Session"]:
-        result_count = await db.execute(select(func.count()).where(ChatMessage.session_id == session_id))
+        result_count = await db.execute(
+            select(func.count()).where(ChatMessage.session_id == session_id)
+        )
         count = result_count.scalar()
         if count == 1:
             async def _bg_title():
                 try:
-                    loop = asyncio.get_event_loop()
-                    new_title = await loop.run_in_executor(
-                        None, ai_service.generate_chat_title, question
-                    )
+                    new_title = await chat_engine.generate_chat_title(question)
                     if new_title and new_title != "New Chat":
                         session.title = new_title
                         await db.commit()
@@ -102,15 +107,12 @@ async def send_session_message(
     memory_context = ""
     preference_context = ""
     try:
-        loop = asyncio.get_event_loop()
-        memories = await loop.run_in_executor(
-            None, memory_service.retrieve_relevant_memory, current_user.id, question, 3
+        memories = await memory_service.retrieve_relevant_memory_async(
+            current_user.id, question, 3
         )
         if memories:
             memory_context = " | ".join(memories[:3])
-        preference_context = await loop.run_in_executor(
-            None, memory_service.get_user_preferences, current_user.id
-        )
+        preference_context = await memory_service.get_user_preferences_async(current_user.id)
     except Exception as exc:
         logger.warning("memory.retrieval.failed", error=str(exc))
 
@@ -124,99 +126,72 @@ async def send_session_message(
     except Exception:
         has_documents = False
 
-    # ── SSE generator with heartbeats ─────────────────────────────────────
-    # Runs the agentic loop in a background thread and polls a queue so that
-    # SSE events (progress + heartbeats) flow continuously — preventing
-    # reverse-proxy idle-connection timeouts on Render / Cloudflare.
-
-    _HEARTBEAT_INTERVAL = 10  # seconds between keep-alive pings
+    # ── SSE generator ──────────────────────────────────────────────────────
 
     async def generate_response():
-        q: queue.Queue = queue.Queue()
+        # Send initial heartbeat immediately so the client knows we're alive
+        yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
 
-        def on_progress(event: dict):
-            """Called from the background thread inside the agentic loop."""
-            q.put(("progress", event))
+        # Run the agentic loop as a background task
+        task = asyncio.create_task(
+            chat_engine.generate_response(
+                question=question,
+                session_id=session_id,
+                user_id=current_user.id,
+                chat_history=chat_history,
+                db=db,
+                model=model_override,
+                deep_think=deep_think,
+                has_documents=has_documents,
+                memory_context=memory_context,
+                preference_context=preference_context,
+            )
+        )
 
-        def _run_agentic():
+        # Poll with heartbeats while the task is running
+        while not task.done():
             try:
-                result = ai_service.answer_with_tools(
-                    question=question,
-                    chat_history=chat_history,
-                    tool_executor=tool_executor,
-                    session_id=session_id,
-                    user_id=current_user.id,
-                    file_type="pdf",
-                    model_override=model_override,
-                    memory_context=memory_context,
-                    preference_context=preference_context,
-                    has_documents=has_documents,
-                    on_progress=on_progress,
-                )
-                q.put(("done", result))
-            except Exception as exc:
-                q.put(("error", exc))
-
-        thread = threading.Thread(target=_run_agentic, daemon=True)
-        thread.start()
-
-        # Poll the queue, yielding SSE events as they arrive.
-        ai_result = None
-        while True:
-            try:
-                kind, payload = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: q.get(timeout=_HEARTBEAT_INTERVAL)
-                )
-            except queue.Empty:
-                # No event within the interval → send heartbeat to keep proxy alive
+                await asyncio.wait_for(asyncio.shield(task), timeout=_HEARTBEAT_INTERVAL)
+            except asyncio.TimeoutError:
                 yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
-                continue
 
-            if kind == "progress":
-                yield f"data: {json.dumps(payload)}\n\n"
-                continue
+        # Check for exception
+        if task.exception():
+            exc = task.exception()
+            err_str = str(exc)
+            _vec_keywords = ("chroma", "sqlite", "disk image", "corrupt",
+                             "no such table", "locked", "vector", "collection")
+            if any(kw in err_str.lower() for kw in _vec_keywords):
+                logger.error("vectorstore.unreachable: %s", err_str)
+                yield f"data: {json.dumps({'error': 'Vector store unavailable. Please re-upload your document and try again.'})}\n\n"
+            else:
+                logger.error("ai.failed: %s", err_str)
+                yield f"data: {json.dumps({'error': 'AI response failed. Please try again.'})}\n\n"
+            return
 
-            if kind == "error":
-                exc = payload
-                err_str = str(exc)
-                _vectorstore_keywords = (
-                    "chroma", "sqlite", "disk image", "corrupt",
-                    "no such table", "locked", "vector", "collection",
-                )
-                if any(kw in err_str.lower() for kw in _vectorstore_keywords):
-                    logger.error("vectorstore.unreachable: %s", err_str)
-                    yield f"data: {json.dumps({'error': 'Vector store unavailable. Please re-upload your document and try again.'})}\n\n"
-                else:
-                    logger.error("ai.failed: %s", err_str)
-                    yield f"data: {json.dumps({'error': 'AI response failed. Please try again.'})}\n\n"
-                return
+        ai_result = task.result()
 
-            if kind == "done":
-                ai_result = payload
-                break
-
-        # ── Post-process the completed result ────────────────────────────────
+        # ── Post-process ────────────────────────────────────────────────────
         answer = ai_result.get("answer", "")
         sources = ai_result.get("sources", [])
         artifacts = ai_result.get("artifacts", [])
         suggestions = ai_result.get("suggestions", [])
 
-        # Content extraction: parse JSON artifact content from the answer text
+        # Inject parsed content into artifacts that are missing it
         if artifacts:
             for art in artifacts:
                 if art.get("artifact_type") in ("flashcards", "quiz") and not art.get("content"):
-                    raw_answer = answer
                     parsed_content = None
-                    for m in re.finditer(r'\[', raw_answer):
+                    for m in re.finditer(r'\[', answer):
                         start = m.start()
                         depth = 0
-                        for i, ch in enumerate(raw_answer[start:], start=start):
+                        for i, ch in enumerate(answer[start:], start=start):
                             if ch == '[':
                                 depth += 1
                             elif ch == ']':
                                 depth -= 1
                             if depth == 0:
-                                candidate = raw_answer[start:i + 1]
+                                candidate = answer[start:i + 1]
                                 try:
                                     parsed = json.loads(candidate)
                                     if isinstance(parsed, list) and len(parsed) > 0:
@@ -228,15 +203,6 @@ async def send_session_message(
                             break
                     if parsed_content:
                         art["content"] = parsed_content
-                        logger.info(
-                            "artifact.content.injected type=%s items=%d session=%s",
-                            art["artifact_type"], len(parsed_content), session_id
-                        )
-                    else:
-                        logger.warning(
-                            "artifact.content.missing type=%s answer_len=%d session=%s",
-                            art["artifact_type"], len(answer), session_id
-                        )
 
         assistant_msg = ChatMessage(
             session_id=session_id,
@@ -309,14 +275,12 @@ async def message_feedback(
         )
         user_msg = user_msg_result.scalar_one_or_none()
         if user_msg:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                memory_service.store_interaction,
-                current_user.id,
-                user_msg.content,
-                msg.content[:300],
-                data.feedback,
+            await memory_service.store_interaction_async(
+                user_id=current_user.id,
+                question=user_msg.content,
+                answer=msg.content[:300],
+                feedback=data.feedback,
+                session_id=msg.session_id,
             )
     except Exception as exc:
         logger.warning("memory.feedback.failed", error=str(exc))

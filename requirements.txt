@@ -36,16 +36,8 @@ python-dotenv==1.1.1
 requests==2.32.4
 Pillow==11.3.0
 
-# Vector store
-chromadb>=1.0.0,<2.0.0
-
-# LangChain RAG pipeline
-langchain==0.3.25
-langchain-core>=0.3.58
-langchain-text-splitters==0.3.8
-langchain-openai==0.3.12
-langchain-google-genai>=2.0.0
-langchain-chroma==0.2.4
+# Vector store (numpy-based, stored in SQLite — replaces chromadb)
+numpy>=1.26.0
 
 # MCP (Model Context Protocol)
 mcp>=1.0.0

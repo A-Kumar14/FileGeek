@@ -1,36 +1,37 @@
-import os
+"""
+services/ai_service.py — Thin shim for backward compatibility.
+
+The real logic now lives in:
+  services/llm.py        (LLM calls)
+  services/chat_engine.py (agentic loop)
+  services/embeddings.py  (embeddings)
+
+This class wraps those services with the OLD synchronous API so that
+existing callers (tools.py, explore.py, document_tasks.py) need zero changes.
+
+IMPORTANT:
+  answer_with_tools() and generate_chat_title() must NOT be called from
+  within a running event loop.  They use asyncio.run() internally.
+  They ARE called from routers/chat.py but only indirectly — the chat router
+  now calls chat_engine.generate_response() directly (async).
+
+  answer_from_context() calls asyncio.run(llm.simple_response()) which is
+  safe because it is called either:
+    a) From Celery workers (no event loop)
+    b) From run_in_executor() inside chat_engine (thread pool — no event loop)
+"""
+
+import asyncio
 import logging
-from typing import List, Dict, Optional
-
-from dotenv import load_dotenv
-from langchain_openai import OpenAIEmbeddings
-from langchain_core.embeddings import Embeddings as LCEmbeddings
-
-from services.providers.gemini_provider import GeminiV1Embeddings, answer_gemini, agentic_gemini
-from services.providers.openai_provider import answer_openai, agentic_openai
-# NOTE: langchain_google_genai is NOT used for embeddings — its default v1beta endpoint
-# dropped support for text-embedding-004. We use a direct REST call to the stable v1 API.
-
-load_dotenv()
+import os
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Provider detection ──────────────────────────────────────────────────
-# Set AI_PROVIDER=gemini or AI_PROVIDER=openai in .env (default: auto-detect)
-
-_provider = os.getenv("AI_PROVIDER", "").lower()
-
-
-# GeminiV1Embeddings, answer_gemini, agentic_gemini, answer_openai, agentic_openai
-# are imported from services.providers.* above.
-
-
-if _provider == "openrouter":
-    AI_PROVIDER = "openrouter"
-elif _provider == "gemini":
-    AI_PROVIDER = "gemini"
-elif _provider == "openai":
-    AI_PROVIDER = "openai"
+# ── Provider detection (kept for RESPONSE_MODEL class attribute) ─────────────
+_provider_env = os.getenv("AI_PROVIDER", "").lower()
+if _provider_env in ("openrouter", "gemini", "openai"):
+    AI_PROVIDER = _provider_env
 elif os.getenv("OPENROUTER_API_KEY"):
     AI_PROVIDER = "openrouter"
 elif os.getenv("OPENAI_API_KEY"):
@@ -38,222 +39,87 @@ elif os.getenv("OPENAI_API_KEY"):
 elif os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"):
     AI_PROVIDER = "gemini"
 else:
-    AI_PROVIDER = "openai"  # will raise a clear error at first use if no key
+    AI_PROVIDER = "openai"
 
-logger.info(f"AI provider: {AI_PROVIDER}")
-
-# Lazy imports based on provider
-genai = None
-OpenAI = None
-
-if AI_PROVIDER == "gemini":
-    import google.generativeai as genai  # noqa: F811
-
-
-
-# ── Persona definitions (Removed, using default system prompt) ─────────
+# ── System prompt (kept for explore.py) ─────────────────────────────────────
 DEFAULT_SYSTEM_PROMPT = (
     "You are FileGeek — a brilliant analytical AI assistant who helps users deeply "
     "understand their documents.\n"
     "- Structured and clear: always use Markdown (headers, lists, bold, code blocks)\n"
     "- Adaptive depth: concise for quick lookups; thorough with examples for concepts\n"
-    "- Math formatting: Always wrap mathematical variables, expressions, and formulas in $...$ for inline math and $$...$$ for block math. Do not use plain parentheses for math.\n"
+    "- Math formatting: Always wrap mathematical variables, expressions, and formulas in "
+    "$...$ for inline math and $$...$$ for block math.\n"
     "- Never fabricate — if info is absent from context, say so\n"
 )
 
 FILE_TYPE_MODIFIERS = {
-    "pdf": "\nThe document is a PDF. Pay attention to page references and structure.",
-    "docx": "\nThe document is a Word file. Focus on textual content and formatting.",
-    "txt": "\nThe document is a plain text file. Focus on the raw content.",
+    "pdf":   "\nThe document is a PDF. Pay attention to page references and structure.",
+    "docx":  "\nThe document is a Word file. Focus on textual content and formatting.",
+    "txt":   "\nThe document is a plain text file. Focus on the raw content.",
     "image": (
         "\nThe content includes an image. You can see it directly. Describe what you "
         "observe and answer the user's question based on the visual content."
     ),
 }
 
+
 def get_system_prompt(file_type: str = "pdf") -> str:
-    modifier = FILE_TYPE_MODIFIERS.get(file_type, "")
-    return DEFAULT_SYSTEM_PROMPT + modifier
+    return DEFAULT_SYSTEM_PROMPT + FILE_TYPE_MODIFIERS.get(file_type, "")
 
-
-# ── AI Service (dual-provider: Gemini + OpenAI) ────────────────────────
 
 class AIService:
-    # Gemini models
-    GEMINI_CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-2.0-flash")
-    GEMINI_RESPONSE_MODEL = os.getenv("GEMINI_RESPONSE_MODEL", "gemini-2.0-flash")
-    # Use the bare model name (without 'models/' prefix); GeminiV1Embeddings adds it.
-    # Override with GEMINI_EMBEDDING_MODEL env var to switch models.
-    # Only 'models/gemini-embedding-001' is available by default on free-tier API keys (v1beta).
-    # If you have access to text-embedding-004, set:
-    #   GEMINI_EMBEDDING_MODEL=text-embedding-004  GEMINI_EMBEDDING_API_VERSION=v1
-    GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
-    GEMINI_EMBEDDING_API_VERSION = os.getenv("GEMINI_EMBEDDING_API_VERSION", "v1beta")
+    """Backward-compat shim wrapping new async services."""
 
-    # OpenAI models
-    OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o")
-    OPENAI_RESPONSE_MODEL = os.getenv("OPENAI_RESPONSE_MODEL", "gpt-4o")
-    OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    # Class-level attributes referenced by chat.py
+    if AI_PROVIDER == "gemini":
+        GEMINI_RESPONSE_MODEL = os.getenv("GEMINI_RESPONSE_MODEL", "gemini-2.0-flash")
+        RESPONSE_MODEL = GEMINI_RESPONSE_MODEL
+    elif AI_PROVIDER == "openrouter":
+        OPENROUTER_RESPONSE_MODEL = os.getenv("OPENROUTER_RESPONSE_MODEL", "openai/gpt-4o")
+        RESPONSE_MODEL = OPENROUTER_RESPONSE_MODEL
+    else:
+        OPENAI_RESPONSE_MODEL = os.getenv("OPENAI_RESPONSE_MODEL", "gpt-4o")
+        RESPONSE_MODEL = OPENAI_RESPONSE_MODEL
 
-    # OpenRouter models (uses OpenAI-compatible API at openrouter.ai/api/v1)
-    # Model IDs use the "provider/model-name" format e.g. "openai/gpt-4o"
-    OPENROUTER_CHAT_MODEL = os.getenv("OPENROUTER_CHAT_MODEL", "openai/gpt-4o")
-    OPENROUTER_RESPONSE_MODEL = os.getenv("OPENROUTER_RESPONSE_MODEL", "openai/gpt-4o")
-
-    # Map shorthand model IDs → OpenRouter full paths when provider is openrouter
+    # Shorthand OR aliases (used by chat.py for model_override resolution)
     _OR_ALIASES: dict = {
         "gpt-4o":            "openai/gpt-4o",
         "gpt-4o-mini":       "openai/gpt-4o-mini",
         "gemini-2.0-flash":  "google/gemini-2.0-flash-exp:free",
         "gemini-3-flash":    "google/gemini-3-flash-preview",
-        "gemini-3.1-pro":    "google/gemini-3.1-pro-preview",
         "grok-3":            "x-ai/grok-3",
         "grok-3-mini":       "x-ai/grok-3-mini",
         "claude-3.5-sonnet": "anthropic/claude-3.5-sonnet",
         "claude-sonnet-4.5": "anthropic/claude-sonnet-4.5",
-        "claude-3-haiku":    "anthropic/claude-3-haiku",
     }
-
-    # Provider-aware aliases
-    if AI_PROVIDER == "gemini":
-        CHAT_MODEL = GEMINI_CHAT_MODEL
-        RESPONSE_MODEL = GEMINI_RESPONSE_MODEL
-    elif AI_PROVIDER == "openrouter":
-        CHAT_MODEL = OPENROUTER_CHAT_MODEL
-        RESPONSE_MODEL = OPENROUTER_RESPONSE_MODEL
-    else:  # openai
-        CHAT_MODEL = OPENAI_CHAT_MODEL
-        RESPONSE_MODEL = OPENAI_RESPONSE_MODEL
 
     def __init__(self):
         self.provider = AI_PROVIDER
-        self._openai_client_instance = None
-        self._gemini_configured = False
-        self._genai_module = None
-        self.embeddings = None  # default; overwritten below if keys are present
+        # Lazy references to registry singletons — set after registry.py runs
+        self._llm = None
+        self._chat_engine = None
+        self._embedding_service = None
 
-        if self.provider == "gemini":
-            api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-            if not api_key:
-                logger.warning("Gemini API key not found. Embeddings will fail if called.")
-            else:
-                # We do not globally configure genai here to avoid crashing if it's missing but not used
-                self.embeddings = GeminiV1Embeddings(
-                    api_key=api_key,
-                    model=self.GEMINI_EMBEDDING_MODEL,
-                    api_version=self.GEMINI_EMBEDDING_API_VERSION,
-                )
-        elif self.provider == "openai":
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                logger.warning("OPENAI API key not found. Embeddings will fail if called.")
-            else:
-                self.embeddings = OpenAIEmbeddings(
-                    model=self.OPENAI_EMBEDDING_MODEL,
-                    openai_api_key=api_key,
-                )
-        elif self.provider == "openrouter":
-            # OpenRouter has no embeddings endpoint — use OPENAI_API_KEY or GOOGLE_API_KEY
-            openai_key = os.getenv("OPENAI_API_KEY")
-            gemini_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-            if openai_key:
-                self.embeddings = OpenAIEmbeddings(
-                    model=self.OPENAI_EMBEDDING_MODEL,
-                    openai_api_key=openai_key,
-                )
-            elif gemini_key:
-                self.embeddings = GeminiV1Embeddings(
-                    api_key=gemini_key,
-                    model=self.GEMINI_EMBEDDING_MODEL,
-                    api_version=self.GEMINI_EMBEDDING_API_VERSION,
-                )
-            else:
-                logger.warning("No embedding provider for OpenRouter. Provide OPENAI_API_KEY or GOOGLE_API_KEY for embeddings.")
-                self.embeddings = None
-        else:
-            logger.warning("No embedding provider configured. Set OPENAI_API_KEY or GOOGLE_API_KEY.")
-            self.embeddings = None
+    def _get_llm(self):
+        if self._llm is None:
+            from services.registry import llm_service
+            self._llm = llm_service
+        return self._llm
 
-    @property
-    def openai_client(self):
-        if self._openai_client_instance is None:
-            from openai import OpenAI as _OpenAI
+    def _get_chat_engine(self):
+        if self._chat_engine is None:
+            from services.registry import chat_engine
+            self._chat_engine = chat_engine
+        return self._chat_engine
 
-            if self.provider == "openrouter":
-                api_key = os.getenv("OPENROUTER_API_KEY")
-                if not api_key:
-                    raise ValueError("OPENROUTER_API_KEY environment variable is required to use OpenRouter models.")
-                self._openai_client_instance = _OpenAI(
-                    base_url="https://openrouter.ai/api/v1",
-                    api_key=api_key,
-                )
-            else:
-                api_key = os.getenv("OPENAI_API_KEY")
-                if not api_key:
-                    raise ValueError("OPENAI_API_KEY environment variable is required to use OpenAI models.")
-                self._openai_client_instance = _OpenAI(api_key=api_key)
+    def _get_emb(self):
+        if self._embedding_service is None:
+            from services.registry import embedding_service
+            self._embedding_service = embedding_service
+        return self._embedding_service
 
-        return self._openai_client_instance
+    # ── answer_from_context ─────────────────────────────────────────────────
 
-    def _resolve_model(self, model_id: str | None) -> str | None:
-        """Map shorthand model IDs to OpenRouter full paths when provider is openrouter."""
-        if not model_id or self.provider != "openrouter":
-            return model_id
-        if "/" in model_id:
-            return model_id  # Already a full OpenRouter path
-        return self._OR_ALIASES.get(model_id, model_id)
-
-    def _get_fallback_clients(self, model_override: str | None = None) -> list:
-        """Return ordered list of (openai_compatible_client, model_name) to try.
-
-        Primary provider first; other providers appended as fallbacks if their
-        API keys are present.  This lets the system automatically recover when
-        a provider hits quota / rate limits.
-        """
-        from openai import OpenAI as _OAI
-
-        attempts = []
-        resolved_override = self._resolve_model(model_override)
-        primary_model = resolved_override or self.CHAT_MODEL
-
-        # ── Primary provider ──────────────────────────────────────────────────
-        attempts.append((self.openai_client, primary_model))
-
-        # ── OpenAI fallback (when primary is OpenRouter) ──────────────────────
-        if self.provider == "openrouter":
-            oai_key = os.getenv("OPENAI_API_KEY")
-            if oai_key:
-                attempts.append((_OAI(api_key=oai_key), "gpt-4o"))
-
-        # ── OpenRouter fallback (when primary is OpenAI/Gemini) ───────────────
-        if self.provider != "openrouter":
-            or_key = os.getenv("OPENROUTER_API_KEY")
-            if or_key:
-                attempts.append((
-                    _OAI(base_url="https://openrouter.ai/api/v1", api_key=or_key),
-                    "openai/gpt-4o",
-                ))
-
-        return attempts
-
-    @property
-    def gemini_client(self):
-        if not self._gemini_configured:
-            import google.generativeai as _genai  # lazy import — works even if AI_PROVIDER=openai
-            api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-            if not api_key:
-                raise ValueError("GOOGLE_API_KEY (or GEMINI_API_KEY) environment variable is required to use Gemini models.")
-            _genai.configure(api_key=api_key)
-            self._genai_module = _genai
-            self._gemini_configured = True
-        return self._genai_module
-
-    @property
-    def client(self):
-        """Backward compat: returns OpenAI client for TTS etc."""
-        return self.openai_client
-
-    # ── Answer from context ─────────────────────────────────────────────
     def answer_from_context(
         self,
         context_chunks: List[str],
@@ -264,79 +130,53 @@ class AIService:
         file_type: str = "pdf",
         image_paths: Optional[List[str]] = None,
     ) -> Optional[str]:
-        provider = self.provider
-        if model_override:
-            if "/" in model_override:
-                provider = "openrouter"
-            elif model_override.startswith("gpt") or model_override.startswith("o"):
-                if self.provider != "openrouter":
-                    provider = "openai"
-            elif model_override.startswith("gemini"):
-                if self.provider != "openrouter":
-                    provider = "gemini"
-            else:
-                logger.warning(f"Unmapped model_override '{model_override}', falling back to {provider}")
+        """Sync — safe to call from Celery workers and run_in_executor threads."""
+        context = "\n\n---\n\n".join(context_chunks) if context_chunks else ""
+        system = get_system_prompt(file_type)
+        text_part = (
+            f"Context from the document:\n\n{context}\n\n---\n\nQuestion: {question}"
+            if context else question
+        )
+
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": text_part},
+        ]
 
         try:
-            if provider == "gemini":
-                # Ensure client is available
-                _ = self.gemini_client
-                return self._answer_gemini(
-                    context_chunks, question, chat_history,
-                    model_override, file_type, image_paths,
+            llm = self._get_llm()
+            return asyncio.run(llm.simple_response(text_part, model=model_override))
+        except RuntimeError as exc:
+            if "This event loop is already running" in str(exc):
+                # Fallback for edge cases — use sync OpenAI client directly
+                logger.warning("answer_from_context: event loop conflict, using sync client")
+                return self._sync_fallback(messages, model_override)
+            raise
+        except Exception as exc:
+            logger.error("answer_from_context failed: %s", exc)
+            return None
+
+    def _sync_fallback(self, messages, model_override=None):
+        """Direct sync OpenAI call when asyncio.run() can't be used."""
+        try:
+            import openai
+            if AI_PROVIDER == "openrouter":
+                client = openai.OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=os.getenv("OPENROUTER_API_KEY"),
                 )
+                model = model_override or os.getenv("OPENROUTER_CHAT_MODEL", "openai/gpt-4o")
             else:
-                _ = self.openai_client
-                return self._answer_openai(
-                    context_chunks, question, chat_history,
-                    model_override, file_type, image_paths,
-                )
-        except Exception as e:
-            logger.error(f"Failed to use provider {provider}: {str(e)}. Falling back to default provider {self.provider}")
-            
-            # Fallback to default configured provider if custom override failed
-            if provider != self.provider:
-                try:
-                    if self.provider == "gemini":
-                        return self._answer_gemini(
-                            context_chunks, question, chat_history,
-                            None, file_type, image_paths, # Force default model
-                        )
-                    else:
-                        return self._answer_openai(
-                            context_chunks, question, chat_history,
-                            None, file_type, image_paths,
-                        )
-                except Exception as fallback_e:
-                    logger.error(f"Fallback generation failed: {str(fallback_e)}")
-            
-            return f"System Error: Unable to communicate with the AI provider. {str(e)}"
+                client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                model = model_override or os.getenv("OPENAI_CHAT_MODEL", "gpt-4o")
+            resp = client.chat.completions.create(model=model, messages=messages)
+            return resp.choices[0].message.content
+        except Exception as exc:
+            logger.error("_sync_fallback failed: %s", exc)
+            return None
 
-    # ── Gemini implementation ───────────────────────────────────────────
-    def _answer_gemini(
-        self,
-        context_chunks: List[str],
-        question: str,
-        chat_history: List[Dict],
-        model_override: str = None,
-        file_type: str = "pdf",
-        image_paths: Optional[List[str]] = None,
-    ) -> Optional[str]:
-        return answer_gemini(self, context_chunks, question, chat_history, model_override, file_type, image_paths)
+    # ── answer_with_tools (kept for compat — chat.py no longer calls this) ──
 
-    # ── OpenAI implementation ───────────────────────────────────────────
-    def _answer_openai(
-        self,
-        context_chunks: List[str],
-        question: str,
-        chat_history: List[Dict],
-        model_override: str = None,
-        file_type: str = "pdf",
-        image_paths: Optional[List[str]] = None,
-    ) -> Optional[str]:
-        return answer_openai(self, context_chunks, question, chat_history, model_override, file_type, image_paths)
-
-    # ── Agentic answer with tool calling ──────────────────────────────
     def answer_with_tools(
         self,
         question: str,
@@ -351,128 +191,65 @@ class AIService:
         has_documents: bool = False,
         on_progress=None,
     ) -> Dict:
-        """Agentic loop: send message, handle tool calls, return final answer + artifacts."""
-        # Models known to not support function/tool calling — fall back to non-agentic flow.
-        _NO_TOOLS_MODELS = {
-            "DeepSeek-R1", "DeepSeek-V3", "o1", "o1-mini", "deepseek-r1", "deepseek-v3",
-            "deepseek/deepseek-r1",  # OpenRouter full path
-        }
-        if model_override and model_override in _NO_TOOLS_MODELS:
-            logger.info("model '%s' does not support tools — using non-agentic answer_from_context", model_override)
+        """
+        Sync entry point kept for any legacy callers.
+        chat.py now calls chat_engine.generate_response() directly.
+        """
+        engine = self._get_chat_engine()
+        try:
+            return asyncio.run(
+                engine.generate_response(
+                    question=question,
+                    session_id=session_id,
+                    user_id=user_id,
+                    chat_history=chat_history,
+                    db=None,
+                    model=model_override,
+                    has_documents=has_documents,
+                    memory_context=memory_context,
+                    preference_context=preference_context,
+                    file_type=file_type,
+                    on_progress=on_progress,
+                )
+            )
+        except Exception as exc:
+            logger.error("answer_with_tools failed: %s", exc)
             return {
-                "answer": (
-                    f"[Model {model_override} does not support tool calling. "
-                    "Please switch to GPT-4o or Gemini 2.0 Flash for full document analysis.]"
-                ),
-                "sources": [],
-                "artifacts": [],
-                "suggestions": [],
-                "message_id": None,
+                "answer": "I encountered an error processing your request.",
+                "sources": [], "artifacts": [], "suggestions": [],
             }
 
-        provider = self.provider
-        if model_override:
-            if "/" in model_override:
-                provider = "openrouter"
-            elif model_override.startswith("gpt") or model_override.startswith("o"):
-                if self.provider != "openrouter":
-                    provider = "openai"
-            elif model_override.startswith("gemini"):
-                if self.provider != "openrouter":
-                    provider = "gemini"
-
-        if provider == "gemini":
-            return self._agentic_gemini(
-                question, chat_history, tool_executor, session_id, user_id,
-                file_type, model_override, memory_context, preference_context,
-                has_documents, on_progress=on_progress,
-            )
-        else:
-            # openai and openrouter both use the OpenAI-compatible agentic path
-            return self._agentic_openai(
-                question, chat_history, tool_executor, session_id, user_id,
-                file_type, model_override, memory_context, preference_context,
-                has_documents, on_progress=on_progress,
-            )
-
-    def _agentic_openai(
-        self, question, chat_history, tool_executor, session_id, user_id,
-        file_type, model_override, memory_context, preference_context,
-        has_documents=False, on_progress=None,
-    ) -> Dict:
-        return agentic_openai(self, question, chat_history, tool_executor, session_id, user_id,
-                              file_type, model_override, memory_context, preference_context,
-                              has_documents, on_progress=on_progress)
-
-    def _agentic_gemini(
-        self, question, chat_history, tool_executor, session_id, user_id,
-        file_type, model_override, memory_context, preference_context,
-        has_documents=False, on_progress=None,
-    ) -> Dict:
-        return agentic_gemini(self, question, chat_history, tool_executor, session_id, user_id,
-                              file_type, model_override, memory_context, preference_context,
-                              has_documents, on_progress=on_progress)
-
-    def _parse_response_extras(self, answer: str, tool_calls_log: list) -> tuple:
-        """Extract sources from search_documents calls and suggestions from response."""
-        import json
-        import re
-
-        sources = []
-        for tc in tool_calls_log:
-            if tc["tool"] == "search_documents" and "results" in tc.get("result_keys", []):
-                pass  # Sources come from tool results embedded in the answer
-
-        suggestions = []
-        suggestion_match = re.search(r'```suggestions\s*\n(.*?)\n```', answer, re.DOTALL)
-        if suggestion_match:
-            try:
-                suggestions = json.loads(suggestion_match.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        return sources, suggestions
+    # ── generate_chat_title ─────────────────────────────────────────────────
 
     def generate_chat_title(self, first_message: str) -> str:
-        """Generates a 2-3 word summary title for a new chat session."""
-        prompt = f"Summarize the user's intent in exactly 2 to 3 words. No quotes. Nothing else.\n\nUser: {first_message}"
         try:
-            if self.provider == "gemini":
-                model = self.gemini_client.GenerativeModel("gemini-1.5-flash")
-                response = model.generate_content(prompt)
-                title = response.text.replace('"', '').strip()
-            else:
-                model_name = "openai/gpt-4o-mini" if self.provider == "openrouter" else "gpt-4o-mini"
-                response = self.openai_client.chat.completions.create(
-                    model=model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=10,
-                    temperature=0.3,
-                )
-                title = response.choices[0].message.content.replace('"', '').strip()
-            
-            words = title.split()
-            if len(words) > 4:
-                title = " ".join(words[:3])
-            return title
-        except Exception as e:
-            logger.error("generate_chat_title.error: %s", e)
+            engine = self._get_chat_engine()
+            return asyncio.run(engine.generate_chat_title(first_message))
+        except Exception as exc:
+            logger.error("generate_chat_title failed: %s", exc)
             return "New Chat"
+
+    # ── get_embeddings ──────────────────────────────────────────────────────
+
+    def get_embeddings(self, text_list: List[str]) -> List[List[float]]:
+        if not text_list:
+            return []
+        emb_svc = self._get_emb()
+        vecs = emb_svc.embed_batch(text_list)
+        return [v.tolist() for v in vecs]
+
+    # ── explore_the_web (sync streaming generator — unchanged) ──────────────
 
     def explore_the_web(self, query: str):
         """
         Search-Augmented Generation streaming generator for the Explore Hub.
-
-        Yields SSE-formatted strings:
-          data: {"type": "chunk", "text": "..."}\\n\\n
-          data: {"type": "sources", "sources": [{title, url, snippet, favicon}]}\\n\\n
+        Yields SSE-formatted strings.
         """
         import json as _json
         from services import search_service
 
         sources: list[dict] = []
 
-        # ── Step A: gather context via DuckDuckGo + trafilatura ───────────────
         try:
             results = search_service.web_search(query, max_results=8)
             urls = [r["url"] for r in results if r.get("url")]
@@ -493,7 +270,6 @@ class AIService:
             "--- END CONTEXT ---"
         )
 
-        # Yield sources metadata first so the frontend can render chips immediately
         if sources:
             for src in sources:
                 try:
@@ -504,66 +280,21 @@ class AIService:
                     src["favicon"] = ""
             yield f"data: {_json.dumps({'type': 'sources', 'sources': sources})}\n\n"
 
-        # ── Step B: stream AI response ────────────────────────────────────────
         try:
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": query},
             ]
-
-            from openai import OpenAI as _OAI
-            if AI_PROVIDER == "openrouter":
-                client = _OAI(
-                    base_url="https://openrouter.ai/api/v1",
-                    api_key=os.getenv("OPENROUTER_API_KEY"),
-                )
-                stream_model = "openai/gpt-4o"
-                stream = client.chat.completions.create(
-                    model=stream_model, messages=messages, stream=True, max_tokens=2048,
-                )
-                for chunk in stream:
-                    text = getattr(chunk.choices[0].delta, "content", None) or ""
-                    if text:
-                        yield f"data: {_json.dumps({'type': 'chunk', 'text': text})}\n\n"
-
-            elif AI_PROVIDER == "openai":
-                client = _OAI(api_key=os.getenv("OPENAI_API_KEY"))
-                stream = client.chat.completions.create(
-                    model="gpt-4o", messages=messages, stream=True, max_tokens=2048,
-                )
-                for chunk in stream:
-                    text = getattr(chunk.choices[0].delta, "content", None) or ""
-                    if text:
-                        yield f"data: {_json.dumps({'type': 'chunk', 'text': text})}\n\n"
-
-            else:
-                # Gemini streaming
-                genai_mod = self.gemini_client
-                gmodel = genai_mod.GenerativeModel(
-                    model_name=self.GEMINI_CHAT_MODEL,
-                    system_instruction=system_prompt,
-                )
-                response = gmodel.generate_content(
-                    query, stream=True, generation_config={"max_output_tokens": 2048},
-                )
-                for chunk in response:
-                    text = getattr(chunk, "text", "") or ""
-                    if text:
-                        yield f"data: {_json.dumps({'type': 'chunk', 'text': text})}\n\n"
-
+            llm = self._get_llm()
+            for text in llm.stream_sync(messages):
+                yield f"data: {_json.dumps({'type': 'chunk', 'text': text})}\n\n"
             yield "data: [DONE]\n\n"
-
         except Exception as exc:
             logger.error("explore_the_web.stream_failed: %s", exc)
             yield f"data: {_json.dumps({'type': 'error', 'text': str(exc)})}\n\n"
 
-    # ── Embeddings ──────────────────────────────────────────────────────
-    def get_embeddings(self, text_list: List[str]) -> List[List[float]]:
-        if not text_list:
-            return []
-        return self.embeddings.embed_documents(text_list)
+    # ── Compat properties ────────────────────────────────────────────────────
 
-    # ── File validation ─────────────────────────────────────────────────
     def validate_file(self, filepath: str) -> bool:
         try:
             if not os.path.exists(filepath):
@@ -571,9 +302,6 @@ class AIService:
             if os.path.getsize(filepath) > 10 * 1024 * 1024:
                 return False
             allowed = (".pdf", ".docx", ".txt", ".png", ".jpg", ".jpeg")
-            if not filepath.lower().endswith(allowed):
-                return False
-            return True
-        except Exception as e:
-            logger.error(f"File validation error: {e}")
+            return filepath.lower().endswith(allowed)
+        except Exception:
             return False

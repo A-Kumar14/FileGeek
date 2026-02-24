@@ -4,8 +4,6 @@ from typing import Optional, List
 from pathlib import Path
 
 import pdfplumber
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
 
 # Try to import PyMuPDF with proper error handling
 try:
@@ -20,6 +18,77 @@ except ImportError:
         logging.warning("PyMuPDF not available, using pdfplumber only")
 
 logger = logging.getLogger(__name__)
+
+
+# ── Pure-Python recursive text splitter (replaces LangChain RecursiveCharacterTextSplitter) ──
+
+_SEPARATORS = ["\n\n", "\n", ". ", " ", ""]
+
+
+def _recursive_split(
+    text: str,
+    chunk_size: int = 1000,
+    chunk_overlap: int = 200,
+    separators: list = None,
+) -> List[str]:
+    """
+    Split text recursively using a list of separators, matching LangChain's
+    RecursiveCharacterTextSplitter behaviour with the same defaults.
+    """
+    if separators is None:
+        separators = _SEPARATORS
+
+    if len(text) <= chunk_size:
+        return [text] if text.strip() else []
+
+    # Try each separator until we find one that actually splits the text
+    for sep in separators:
+        if sep == "":
+            # Last resort: split by character count
+            chunks = []
+            start = 0
+            while start < len(text):
+                end = start + chunk_size
+                chunks.append(text[start:end])
+                start = end - chunk_overlap
+            return [c for c in chunks if c.strip()]
+
+        if sep not in text:
+            continue
+
+        parts = text.split(sep)
+        chunks: List[str] = []
+        current = ""
+
+        for part in parts:
+            candidate = (current + sep + part) if current else part
+            if len(candidate) <= chunk_size:
+                current = candidate
+            else:
+                if current:
+                    chunks.append(current)
+                # If a single part is larger than chunk_size, recurse
+                if len(part) > chunk_size:
+                    sub = _recursive_split(part, chunk_size, chunk_overlap, separators[separators.index(sep)+1:] or [""])
+                    chunks.extend(sub)
+                    current = sub[-1][-chunk_overlap:] if sub else ""
+                else:
+                    current = part
+
+        if current.strip():
+            chunks.append(current)
+
+        # Apply overlap by merging adjacent chunks when possible
+        merged: List[str] = []
+        for chunk in chunks:
+            if merged and len(merged[-1]) + len(chunk) + len(sep) <= chunk_size:
+                merged[-1] = merged[-1] + sep + chunk
+            else:
+                merged.append(chunk)
+
+        return [c for c in merged if c.strip()]
+
+    return [text]
 
 
 class FileService:
@@ -120,17 +189,10 @@ class FileService:
     def chunking_function(self, text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> List[str]:
         if not text:
             return []
-
         try:
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                separators=["\n\n", "\n", ". ", " ", ""],
-            )
-            chunks = splitter.split_text(text)
+            chunks = _recursive_split(text, chunk_size, chunk_overlap)
             logger.info(f"Chunked into {len(chunks)} chunks")
             return chunks
-
         except Exception as e:
             logger.error(f"Error chunking text: {str(e)}")
             return [text]
@@ -225,27 +287,12 @@ class FileService:
             return []
 
         try:
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                separators=["\n\n", "\n", ". ", " ", ""],
-            )
-
-            docs = [
-                Document(page_content=pt["text"], metadata={"page": pt["page"]})
-                for pt in page_texts
-            ]
-            split_docs = splitter.split_documents(docs)
-
             result = []
-            for doc in split_docs:
-                pages = sorted(set(
-                    [doc.metadata["page"]] if "page" in doc.metadata else []
-                ))
-                result.append({"text": doc.page_content, "pages": pages})
-
+            for pt in page_texts:
+                sub_chunks = _recursive_split(pt["text"], chunk_size, chunk_overlap)
+                for chunk in sub_chunks:
+                    result.append({"text": chunk, "pages": [pt["page"]]})
             return result
-
         except Exception as e:
             logger.error(f"Error in chunking_function_with_pages: {e}")
             return [{"text": pt["text"], "pages": [pt["page"]]} for pt in page_texts]

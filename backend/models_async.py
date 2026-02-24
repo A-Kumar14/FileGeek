@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from sqlalchemy import (
-    Integer, String, Text, Float, DateTime,
+    Integer, String, Text, Float, DateTime, LargeBinary,
     ForeignKey, UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -216,3 +216,37 @@ class FlashcardProgress(Base):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class DocumentChunk(Base):
+    """One embedding chunk from an indexed document. Stored as raw float32 bytes."""
+    __tablename__ = "document_chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("study_sessions.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    document_id: Mapped[str] = mapped_column(String(200), index=True)
+    chunk_text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[bytes] = mapped_column(LargeBinary)  # numpy float32 raw bytes
+    pages: Mapped[Optional[str]] = mapped_column(Text, default="[]")  # JSON list of page nums
+    chunk_index: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class UserMemoryEntry(Base):
+    """Long-term user memory stored as embeddings (replaces ChromaDB user_memory collection)."""
+    __tablename__ = "user_memory"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    session_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    summary: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[bytes] = mapped_column(LargeBinary)
+    feedback: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

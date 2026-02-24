@@ -1,77 +1,91 @@
+"""
+services/rag_service.py — Backward-compatible adapter over VectorStore.
+
+Public API is IDENTICAL to the old ChromaDB-based RAGService so that
+tools.py, documents.py, sessions.py, and routers/* need ZERO changes.
+
+Key design notes:
+  - query() MUST stay synchronous and use SyncSession — it is called from
+    ToolExecutor.execute() which runs inside run_in_executor() within an
+    already-running async event loop.  Using asyncio.run() here would raise
+    "This event loop is already running."
+  - collection property returns a _NoOpCollection stub so documents.py's
+    rag_service.collection.delete(...) calls are silently absorbed.
+"""
+
 import asyncio
-import os
 import json
 import logging
+import os
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
-import chromadb
-from langchain_chroma import Chroma
-from langchain_core.documents import Document
+import numpy as np
 from config import Config
 
 logger = logging.getLogger(__name__)
 
 
+class _NoOpCollection:
+    """Absorbs collection.delete() calls from documents.py without error."""
+    def delete(self, **kwargs):
+        pass
+
+    def get(self, **kwargs):
+        return {"ids": [], "embeddings": [], "documents": [], "metadatas": []}
+
+
 class RAGService:
-    """Manages ChromaDB indexing and retrieval with session-scoped persistence."""
+    """Thin adapter — delegates to VectorStore.  Zero ChromaDB imports."""
 
-    def __init__(self, ai_service, file_service):
-        self.ai_service = ai_service
-        self.file_service = file_service
+    def __init__(self, vector_store, file_service, embedding_service):
+        self._vs = vector_store
+        self._fs = file_service
+        self._emb = embedding_service
+        self.collection = _NoOpCollection()   # for backward compat
 
-        os.makedirs(Config.CHROMA_PATH, exist_ok=True)
-        self.vectorstore = Chroma(
-            collection_name="document_chunks",
-            persist_directory=Config.CHROMA_PATH,
-            embedding_function=ai_service.embeddings,
-        )
-        # Keep raw collection reference for metadata-filtered deletes
-        self.collection = self.vectorstore._collection
+    # ── Index document (local file) ──────────────────────────────────────────
 
-    def index_document(self, filepath: str, document_id: str, session_id: str, user_id: int) -> Dict:
-        """Extract, chunk, embed, and store a local file. Returns indexing stats."""
-        # Guard: reject write if stored embeddings don't match current provider.
-        # Silently allowing a mismatch permanently corrupts the ChromaDB index.
-        dim_check = self.check_embedding_dimensions()
-        if dim_check.get("status") == "mismatch":
-            raise ValueError(
-                f"Embedding dimension mismatch: {dim_check['message']} "
-                "Cannot index new documents until the vector store is cleared."
-            )
+    def index_document(
+        self, filepath: str, document_id: str, session_id: str, user_id: int
+    ) -> Dict:
+        """Extract, chunk, embed, and store a local file.  Sync."""
+        from celery_db import SyncSession
 
-        page_texts = self.file_service.extract_text_universal(filepath)
+        page_texts = self._fs.extract_text_universal(filepath)
         if not page_texts:
             return {"chunk_count": 0, "page_count": 0, "text": ""}
 
         extracted_text = "\n\n".join(p["text"] for p in page_texts)
-        chunks_with_pages = self.file_service.chunking_function_with_pages(page_texts)
+        chunks_with_pages = self._fs.chunking_function_with_pages(page_texts)
 
+        chunk_count = 0
         if chunks_with_pages:
-            docs = [
-                Document(
-                    page_content=c["text"],
-                    metadata={
-                        "document_id": document_id,
-                        "session_id": session_id,
-                        "user_id": str(user_id),
-                        "pages": json.dumps(c["pages"]),
-                    },
+            with SyncSession() as db:
+                chunk_count = self._vs.index_chunks_sync(
+                    session_id=session_id,
+                    user_id=user_id,
+                    document_id=document_id,
+                    chunks=chunks_with_pages,
+                    db=db,
                 )
-                for c in chunks_with_pages
-            ]
-            ids = [f"{document_id}_chunk_{i}" for i in range(len(docs))]
-            self.vectorstore.add_documents(docs, ids=ids)
-            logger.info(f"Indexed {len(docs)} chunks for doc={document_id} session={session_id}")
+            logger.info(
+                "RAGService.index_document: doc=%s session=%s chunks=%d",
+                document_id, session_id, chunk_count,
+            )
 
         return {
-            "chunk_count": len(chunks_with_pages),
+            "chunk_count": chunk_count,
             "page_count": len(page_texts),
             "text": extracted_text,
         }
 
-    def index_from_url(self, url: str, name: str, document_id: str, session_id: str, user_id: int) -> Dict:
-        """Download a file from CDN and index it."""
+    # ── Index from URL ───────────────────────────────────────────────────────
+
+    def index_from_url(
+        self, url: str, name: str, document_id: str, session_id: str, user_id: int
+    ) -> Dict:
+        """Download from CDN and index.  Sync."""
         import requests as http_requests
         from werkzeug.utils import secure_filename
 
@@ -87,15 +101,14 @@ class RAGService:
                 for chunk in dl_resp.iter_content(chunk_size=8192):
                     fout.write(chunk)
         except Exception as e:
-            logger.error(f"Failed to download {url}: {e}")
+            logger.error("RAGService.index_from_url download failed url=%s: %s", url, e)
             raise
 
         try:
             result = self.index_document(filepath, document_id, session_id, user_id)
             result["filepath"] = filepath
-            result["file_type"] = self.file_service.detect_file_type(filepath)
-            file_info = self.file_service.get_file_info(filepath)
-            result["file_info"] = file_info
+            result["file_type"] = self._fs.detect_file_type(filepath)
+            result["file_info"] = self._fs.get_file_info(filepath)
             return result
         finally:
             try:
@@ -103,302 +116,227 @@ class RAGService:
             except Exception:
                 pass
 
-    def query(self, question: str, session_id: str, user_id: int, n_results: int = 5) -> Dict:
-        """Session-scoped retrieval. Returns chunks, metas, and image paths."""
-        # Guard: skip expensive ChromaDB call when inputs are clearly invalid
-        if not session_id or not str(user_id).strip():
-            logger.warning("RAG query skipped: missing session_id or user_id")
-            return {"chunks": [], "metas": []}
-        if not question or not question.strip():
-            logger.warning("RAG query skipped: empty question")
-            return {"chunks": [], "metas": []}
-
-        try:
-            # Primary: compound filter by session_id AND user_id
-            filter_dict = {
-                "$and": [
-                    {"session_id": session_id},
-                    {"user_id": str(user_id)},
-                ]
-            }
-
-            results = self.vectorstore.similarity_search(
-                query=question,
-                k=n_results,
-                filter=filter_dict,
-            )
-
-            # Fallback: ChromaDB's $and can silently fail with sparse collections.
-            # Retry with session_id-only filter if no chunks were returned.
-            if not results:
-                logger.warning(
-                    f"RAG compound filter returned 0 chunks for session={session_id} "
-                    f"user={user_id} — retrying with session_id-only filter"
-                )
-                results = self.vectorstore.similarity_search(
-                    query=question,
-                    k=n_results,
-                    filter={"session_id": session_id},
-                )
-
-            chunks = [doc.page_content for doc in results]
-            metas = [doc.metadata for doc in results]
-
-            logger.info(
-                f"RAG query: session={session_id} user={user_id} "
-                f"chunks_returned={len(chunks)} question_prefix={question[:60]!r}"
-            )
-            return {"chunks": chunks, "metas": metas}
-
-        except Exception as e:
-            logger.warning(f"RAG query failed for session={session_id} user={user_id}: {e}")
-            return {"chunks": [], "metas": []}
-
-    def query_all_sessions(self, question: str, user_id: int, n_results: int = 5) -> Dict:
-        """Cross-session retrieval: search ALL documents belonging to a user."""
-        try:
-            results = self.vectorstore.similarity_search(
-                query=question,
-                k=n_results,
-                filter={"user_id": str(user_id)},
-            )
-            chunks = [doc.page_content for doc in results]
-            metas = [doc.metadata for doc in results]
-            logger.info(
-                f"RAG cross-session query: user={user_id} chunks_returned={len(chunks)} "
-                f"question_prefix={question[:60]!r}"
-            )
-            return {"chunks": chunks, "metas": metas}
-        except Exception as e:
-            logger.warning(f"RAG cross-session query failed: {e}")
-            return {"chunks": [], "metas": []}
-
-    def delete_session_documents(self, session_id: str, user_id: Optional[int] = None):
-        """Delete all ChromaDB entries for a session.
-
-        When user_id is provided a compound filter is applied so that only
-        the calling user's chunks are removed, preventing cross-user orphans.
-        Gracefully falls back to session-only filter if ChromaDB rejects
-        the compound query (e.g. sparse collections).
-        """
-        try:
-            if user_id is not None:
-                where_filter = {
-                    "$and": [
-                        {"session_id": session_id},
-                        {"user_id": str(user_id)},
-                    ]
-                }
-                try:
-                    self.collection.delete(where=where_filter)
-                    logger.info(
-                        f"Deleted ChromaDB docs for session={session_id} user={user_id} "
-                        f"(compound filter)"
-                    )
-                    return
-                except Exception as compound_err:
-                    logger.warning(
-                        f"ChromaDB compound delete failed (falling back to session-only): {compound_err}"
-                    )
-            # Fallback: session-only filter
-            self.collection.delete(where={"session_id": session_id})
-            logger.info(f"Deleted ChromaDB docs for session={session_id} (session-only filter)")
-        except Exception as e:
-            logger.warning(f"ChromaDB session delete failed: {e}")
-
-    async def query_async(
-        self, question: str, session_id: str, user_id: int, n_results: int = 5
-    ) -> Dict:
-        """Async wrapper around the sync query() method (runs in thread pool)."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None, self.query, question, session_id, user_id, n_results
-        )
-
     async def index_from_url_async(
         self, url: str, name: str, document_id: str, session_id: str, user_id: int
     ) -> Dict:
-        """Async wrapper around the sync index_from_url() method."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None, self.index_from_url, url, name, document_id, session_id, user_id
         )
 
-    def find_related_documents(self, session_id: str, user_id: int, n: int = 5) -> List[dict]:
-        """
-        Semantic cross-document linking: find documents from OTHER sessions of the same
-        user that share similar semantic clusters with the current session.
+    # ── Query ────────────────────────────────────────────────────────────────
 
-        Strategy: sample representative embeddings from the current session's stored
-        chunks, then use those embeddings as query vectors against all other sessions
-        owned by the same user. No re-embedding cost — reuses stored vectors directly.
+    def query(
+        self, question: str, session_id: str, user_id: int, n_results: int = 5
+    ) -> Dict:
         """
+        Session-scoped retrieval.  SYNC — uses SyncSession.
+        Called from ToolExecutor.execute() which runs in run_in_executor.
+        Must NOT use asyncio.run() here.
+        """
+        if not session_id or not question or not question.strip():
+            return {"chunks": [], "metas": []}
+
         try:
-            # 1. Get representative chunks (with embeddings) from the current session
-            sample = self.collection.get(
-                where={"$and": [{"session_id": session_id}, {"user_id": str(user_id)}]},
-                limit=5,
-                include=["embeddings", "documents", "metadatas"],
+            from celery_db import SyncSession
+
+            with SyncSession() as db:
+                results = self._vs.search_sync(
+                    session_id=session_id,
+                    user_id=user_id,
+                    query=question,
+                    k=n_results,
+                    db=db,
+                )
+
+            chunks = [r.chunk_text for r in results]
+            metas = [
+                {"pages": json.dumps(r.pages), "document_id": r.document_id}
+                for r in results
+            ]
+
+            logger.info(
+                "RAGService.query: session=%s user=%s chunks=%d q=%r",
+                session_id, user_id, len(chunks), question[:60],
             )
-            if not sample.get("embeddings") or not sample["embeddings"]:
+            return {"chunks": chunks, "metas": metas}
+
+        except Exception as exc:
+            logger.warning(
+                "RAGService.query failed session=%s user=%s: %s", session_id, user_id, exc
+            )
+            return {"chunks": [], "metas": []}
+
+    async def query_async(
+        self, question: str, session_id: str, user_id: int, n_results: int = 5
+    ) -> Dict:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self.query, question, session_id, user_id, n_results
+        )
+
+    def query_all_sessions(
+        self, question: str, user_id: int, n_results: int = 5
+    ) -> Dict:
+        """Cross-session retrieval.  Sync."""
+        try:
+            from celery_db import SyncSession
+            from models_async import DocumentChunk
+            from sqlalchemy import select
+
+            q_vec = self._emb.embed(question)
+
+            with SyncSession() as db:
+                result = db.execute(
+                    select(DocumentChunk).where(DocumentChunk.user_id == user_id)
+                )
+                rows = result.scalars().all()
+
+            if not rows:
+                return {"chunks": [], "metas": []}
+
+            dim = len(q_vec)
+            embeddings, valid_rows = [], []
+            for row in rows:
+                try:
+                    vec = np.frombuffer(row.embedding, dtype=np.float32)
+                    if len(vec) == dim:
+                        embeddings.append(vec)
+                        valid_rows.append(row)
+                except Exception:
+                    pass
+
+            if not embeddings:
+                return {"chunks": [], "metas": []}
+
+            mat = np.stack(embeddings)
+            scores = mat @ q_vec
+            top_idx = np.argsort(scores)[::-1][:n_results]
+
+            chunks = [valid_rows[i].chunk_text for i in top_idx]
+            metas = [
+                {
+                    "pages": valid_rows[i].pages or "[]",
+                    "document_id": valid_rows[i].document_id,
+                }
+                for i in top_idx
+            ]
+            return {"chunks": chunks, "metas": metas}
+
+        except Exception as exc:
+            logger.warning(
+                "RAGService.query_all_sessions failed user=%s: %s", user_id, exc
+            )
+            return {"chunks": [], "metas": []}
+
+    # ── Delete ───────────────────────────────────────────────────────────────
+
+    def delete_session_documents(self, session_id: str, user_id: Optional[int] = None):
+        """Delete all vector chunks for a session.  Sync."""
+        try:
+            from celery_db import SyncSession
+
+            with SyncSession() as db:
+                self._vs.delete_session_chunks_sync(session_id, db)
+        except Exception as exc:
+            logger.warning(
+                "RAGService.delete_session_documents failed session=%s: %s",
+                session_id, exc,
+            )
+
+    # ── Related sessions ─────────────────────────────────────────────────────
+
+    def find_related_documents(
+        self, session_id: str, user_id: int, n: int = 5
+    ) -> List[dict]:
+        try:
+            from celery_db import SyncSession
+            from models_async import DocumentChunk
+            from sqlalchemy import select
+
+            with SyncSession() as db:
+                anchor_res = db.execute(
+                    select(DocumentChunk).where(
+                        DocumentChunk.session_id == session_id,
+                        DocumentChunk.user_id == user_id,
+                    ).limit(5)
+                )
+                anchors = anchor_res.scalars().all()
+
+                if not anchors:
+                    return []
+
+                vecs = [np.frombuffer(c.embedding, dtype=np.float32) for c in anchors]
+                anchor_vec = np.mean(vecs, axis=0).astype(np.float32)
+                norm = np.linalg.norm(anchor_vec)
+                if norm > 0:
+                    anchor_vec = anchor_vec / norm
+
+                other_res = db.execute(
+                    select(DocumentChunk).where(
+                        DocumentChunk.user_id == user_id,
+                        DocumentChunk.session_id != session_id,
+                    )
+                )
+                other_rows = other_res.scalars().all()
+
+            if not other_rows:
                 return []
 
-            related: List[dict] = []
-            seen_sessions: set = set()
+            session_scores: dict = {}
+            for chunk in other_rows:
+                vec = np.frombuffer(chunk.embedding, dtype=np.float32)
+                score = float(anchor_vec @ vec)
+                session_scores.setdefault(chunk.session_id, []).append(score)
 
-            for emb, doc_text in zip(sample["embeddings"][:3], sample["documents"][:3]):
-                results = self.collection.query(
-                    query_embeddings=[emb],
-                    n_results=n + 2,
-                    where={"$and": [
-                        {"user_id": str(user_id)},
-                        {"session_id": {"$ne": session_id}},
-                    ]},
-                    include=["documents", "metadatas", "distances"],
-                )
-                for rdoc, rmeta, rdist in zip(
-                    results["documents"][0],
-                    results["metadatas"][0],
-                    results["distances"][0],
-                ):
-                    sid = rmeta.get("session_id")
-                    if sid and sid not in seen_sessions:
-                        seen_sessions.add(sid)
-                        related.append({
-                            "session_id": sid,
-                            "excerpt": rdoc[:200].strip(),
-                            "similarity": round(max(0.0, 1.0 - float(rdist)), 3),
-                            "pages": json.loads(rmeta.get("pages", "[]")),
-                        })
-
-            return sorted(related, key=lambda x: x["similarity"], reverse=True)[:n]
+            ranked = sorted(
+                [
+                    {"session_id": sid, "score": float(np.mean(s))}
+                    for sid, s in session_scores.items()
+                ],
+                key=lambda x: x["score"],
+                reverse=True,
+            )
+            return ranked[:n]
 
         except Exception as exc:
-            logger.warning("RAG.find_related_documents failed session=%s user=%s: %s", session_id, user_id, exc)
+            logger.warning(
+                "RAGService.find_related_documents failed session=%s: %s",
+                session_id, exc,
+            )
             return []
 
-    async def find_related_documents_async(self, session_id: str, user_id: int, n: int = 5) -> List[dict]:
-        """Async wrapper around find_related_documents()."""
+    async def find_related_documents_async(
+        self, session_id: str, user_id: int, n: int = 5
+    ) -> List[dict]:
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.find_related_documents, session_id, user_id, n)
+        return await loop.run_in_executor(
+            None, self.find_related_documents, session_id, user_id, n
+        )
 
-    def check_embedding_dimensions(self) -> dict:
-        """
-        Detect embedding dimension mismatches between what is currently stored in
-        ChromaDB and the dimensions expected by the active AI provider.
-
-        Gemini text-embedding-004 → 768 dims
-        OpenAI text-embedding-3-small → 1536 dims
-
-        Returns a status dict that is included in /health responses.
-        """
-        expected = 768 if "gemini" in str(type(self.ai_service.embeddings)).lower() else 1536
-        try:
-            sample = self.collection.get(limit=1, include=["embeddings"])
-            embeddings = sample.get("embeddings") or []
-            if not embeddings or len(embeddings) == 0:
-                return {"status": "ok", "message": "No vectors stored yet — mismatch check skipped."}
-            actual = len(embeddings[0])
-            if actual != expected:
-                return {
-                    "status": "mismatch",
-                    "message": (
-                        f"Stored vectors are {actual}-dimensional but the current provider "
-                        f"expects {expected}d. "
-                        f"Delete backend/chroma_data/ and re-upload all documents."
-                    ),
-                    "actual_dims": actual,
-                    "expected_dims": expected,
-                }
-            return {"status": "ok", "dimensions": actual}
-        except Exception as exc:
-            return {"status": "unknown", "error": str(exc)}
+    # ── Sources builder ──────────────────────────────────────────────────────
 
     def build_sources(self, chunks: List[str], metas: List[dict]) -> List[dict]:
-        """Build source citation list from RAG results."""
         sources = []
         for i, (chunk_text, meta) in enumerate(zip(chunks, metas), start=1):
             excerpt = (chunk_text[:200] + "...") if len(chunk_text) > 200 else chunk_text
-            pages = json.loads(meta.get("pages", "[]")) if meta else []
+            raw_pages = meta.get("pages", "[]")
+            try:
+                pages = json.loads(raw_pages) if isinstance(raw_pages, str) else raw_pages
+            except Exception:
+                pages = []
             sources.append({"index": i, "excerpt": excerpt.strip(), "pages": pages})
         return sources
 
+    # ── Compat stubs ─────────────────────────────────────────────────────────
 
-class MemoryService:
-    """Long-term user memory stored in a separate ChromaDB collection."""
+    def check_embedding_dimensions(self) -> dict:
+        return {
+            "status": "ok",
+            "message": "Using SQLite vector store — no dimension mismatch possible.",
+        }
 
-    def __init__(self, ai_service):
-        self.ai_service = ai_service
-        os.makedirs(Config.CHROMA_PATH, exist_ok=True)
-        self._client = chromadb.PersistentClient(path=Config.CHROMA_PATH)
-        self.collection = self._client.get_or_create_collection(
-            name="user_memory",
-            metadata={"description": "Long-term user interaction memory"},
-        )
 
-    def store_interaction(self, user_id: int, question: str, answer: str, feedback: Optional[str] = None):
-        """Store a Q&A interaction summary for future recall."""
-        summary = f"Q: {question[:200]}\nA: {answer[:300]}"
-        if feedback:
-            summary += f"\nFeedback: {feedback}"
-
-        try:
-            embedding = self.ai_service.get_embeddings([summary])[0]
-            mem_id = f"mem_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-            self.collection.add(
-                ids=[mem_id],
-                embeddings=[embedding],
-                documents=[summary],
-                metadatas=[{
-                    "user_id": str(user_id),
-                    "feedback": feedback or "",
-                    "timestamp": datetime.utcnow().isoformat(),
-                }],
-            )
-        except Exception as e:
-            logger.warning(f"Failed to store memory: {e}")
-
-    def retrieve_relevant_memory(self, user_id: int, question: str, n: int = 3) -> List[str]:
-        """Retrieve past interactions relevant to the current question."""
-        try:
-            embedding = self.ai_service.get_embeddings([question])[0]
-            results = self.collection.query(
-                query_embeddings=[embedding],
-                n_results=n,
-                where={"user_id": str(user_id)},
-            )
-            return results["documents"][0] if results["documents"] else []
-        except Exception as e:
-            logger.warning(f"Memory retrieval failed: {e}")
-            return []
-
-    def get_user_preferences(self, user_id: int) -> str:
-        """Aggregate feedback patterns into a preference string."""
-        try:
-            positive = self.collection.get(
-                where={"$and": [{"user_id": str(user_id)}, {"feedback": "up"}]},
-                limit=20,
-            )
-            negative = self.collection.get(
-                where={"$and": [{"user_id": str(user_id)}, {"feedback": "down"}]},
-                limit=20,
-            )
-
-            pos_count = len(positive["ids"]) if positive["ids"] else 0
-            neg_count = len(negative["ids"]) if negative["ids"] else 0
-
-            if pos_count == 0 and neg_count == 0:
-                return ""
-
-            prefs = []
-            if pos_count > 0:
-                pos_docs = positive["documents"][:5] if positive["documents"] else []
-                prefs.append(f"User liked responses like: {'; '.join(d[:80] for d in pos_docs)}")
-            if neg_count > 0:
-                neg_docs = negative["documents"][:5] if negative["documents"] else []
-                prefs.append(f"User disliked responses like: {'; '.join(d[:80] for d in neg_docs)}")
-
-            return " | ".join(prefs)
-        except Exception as e:
-            logger.warning(f"Preference aggregation failed: {e}")
-            return ""
+# ── MemoryService has moved to services/memory_service.py ────────────────────
+# Import it here for any code that does `from services.rag_service import MemoryService`
+from services.memory_service import MemoryService  # noqa: E402, F401

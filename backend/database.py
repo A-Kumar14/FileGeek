@@ -8,6 +8,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 logger = logging.getLogger(__name__)
 
@@ -160,4 +161,10 @@ async def init_db():
                 # the database is still fully usable in the default rollback-journal mode.
                 logger.warning("database.wal_mode.failed (non-fatal): %s", wal_exc)
         from models_async import Base as ModelsBase  # noqa: F401
-        await conn.run_sync(ModelsBase.metadata.create_all)
+        try:
+            await conn.run_sync(ModelsBase.metadata.create_all)
+        except OperationalError as exc:
+            if "already exists" in str(exc).lower():
+                logger.info("database.create_all — tables already exist (concurrent worker race), skipping")
+            else:
+                raise

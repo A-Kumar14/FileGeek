@@ -164,9 +164,25 @@ def agentic_openai(svc, question, chat_history, tool_executor, session_id, user_
                 break
 
         if response is None:
-            logger.error("All providers failed for agentic call: %s", last_err, exc_info=True)
-            return {"answer": "I encountered an error processing your request.",
-                    "sources": [], "artifacts": [], "suggestions": []}
+            # Tool-calling rejected by all providers — fall back to a plain completion.
+            # This handles models that don't support function calling or return API errors.
+            logger.warning(
+                "tool-calling failed round=%d err=%s — retrying without tools", _round, last_err
+            )
+            for _fb_client, _fb_model in fallback_clients:
+                _call_model = model_override or _fb_model
+                try:
+                    response = _fb_client.chat.completions.create(
+                        model=_call_model, messages=messages
+                    )
+                    break
+                except Exception as plain_err:
+                    logger.warning("no-tools fallback failed model=%s: %s", _call_model, plain_err)
+
+            if response is None:
+                logger.error("All providers failed (with and without tools): %s", last_err)
+                return {"answer": "I encountered an error processing your request.",
+                        "sources": [], "artifacts": [], "suggestions": []}
 
         choice = response.choices[0]
 

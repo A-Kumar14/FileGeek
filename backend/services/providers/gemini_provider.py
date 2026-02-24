@@ -145,7 +145,7 @@ def answer_gemini(svc, context_chunks, question, chat_history, model_override, f
 
 def agentic_gemini(svc, question, chat_history, tool_executor, session_id, user_id,
                    file_type, model_override, memory_context, preference_context,
-                   has_documents=False) -> Dict:
+                   has_documents=False, on_progress=None) -> Dict:
     """Agentic tool-calling loop via Gemini function calling."""
     from services.tools import GEMINI_TOOL_DEFINITIONS
     from services.ai_service import get_system_prompt
@@ -195,7 +195,15 @@ def agentic_gemini(svc, question, chat_history, tool_executor, session_id, user_
     tool_calls_log = []
     max_rounds = 3
 
+    def _emit(event: dict):
+        if on_progress:
+            try:
+                on_progress(event)
+            except Exception:
+                pass
+
     for _round in range(max_rounds):
+        _emit({"type": "status", "text": "Thinking…"})
         try:
             response = model.generate_content(contents)
         except Exception as e:
@@ -218,7 +226,9 @@ def agentic_gemini(svc, question, chat_history, tool_executor, session_id, user_
                 if model_override:
                     fn_args["model"] = model_override
 
+                _emit({"type": "tool_start", "tool": fn_name})
                 result = tool_executor.execute(fn_name, fn_args, session_id, user_id)
+                _emit({"type": "tool_done", "tool": fn_name})
                 tool_calls_log.append({"tool": fn_name, "args": fn_args, "result_keys": list(result.keys())})
                 if result.get("artifact_type"):
                     artifacts.append(result)
@@ -231,6 +241,7 @@ def agentic_gemini(svc, question, chat_history, tool_executor, session_id, user_
             contents.append(candidate.content)
             contents.append({"role": "user", "parts": function_responses})
         else:
+            _emit({"type": "status", "text": "Generating response…"})
             answer = response.text or ""
             sources, suggestions = svc._parse_response_extras(answer, tool_calls_log)
             return {

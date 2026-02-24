@@ -345,6 +345,7 @@ class AIService:
         memory_context: str = "",
         preference_context: str = "",
         has_documents: bool = False,
+        on_progress=None,
     ) -> Dict:
         """Agentic loop: send message, handle tool calls, return final answer + artifacts."""
         # Models known to not support function/tool calling — fall back to non-agentic flow.
@@ -380,31 +381,33 @@ class AIService:
             return self._agentic_gemini(
                 question, chat_history, tool_executor, session_id, user_id,
                 file_type, model_override, memory_context, preference_context,
-                has_documents,
+                has_documents, on_progress=on_progress,
             )
         else:
             # openai and openrouter both use the OpenAI-compatible agentic path
             return self._agentic_openai(
                 question, chat_history, tool_executor, session_id, user_id,
                 file_type, model_override, memory_context, preference_context,
-                has_documents,
+                has_documents, on_progress=on_progress,
             )
 
     def _agentic_openai(
         self, question, chat_history, tool_executor, session_id, user_id,
         file_type, model_override, memory_context, preference_context,
-        has_documents=False,
+        has_documents=False, on_progress=None,
     ) -> Dict:
         return agentic_openai(self, question, chat_history, tool_executor, session_id, user_id,
-                              file_type, model_override, memory_context, preference_context, has_documents)
+                              file_type, model_override, memory_context, preference_context,
+                              has_documents, on_progress=on_progress)
 
     def _agentic_gemini(
         self, question, chat_history, tool_executor, session_id, user_id,
         file_type, model_override, memory_context, preference_context,
-        has_documents=False,
+        has_documents=False, on_progress=None,
     ) -> Dict:
         return agentic_gemini(self, question, chat_history, tool_executor, session_id, user_id,
-                              file_type, model_override, memory_context, preference_context, has_documents)
+                              file_type, model_override, memory_context, preference_context,
+                              has_documents, on_progress=on_progress)
 
     def _parse_response_extras(self, answer: str, tool_calls_log: list) -> tuple:
         """Extract sources from search_documents calls and suggestions from response."""

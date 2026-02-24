@@ -12,7 +12,7 @@ const MarkdownRenderer = lazy(() => import('./MarkdownRenderer'));
 
 export default function ChatPanel() {
   const scrollRef = useRef(null);
-  const { activeSessionId, messages, isLoading, streamingContent, startNewSession, chatSessions } = useChatContext();
+  const { activeSessionId, messages, isLoading, streamingContent, streamingStatus, startNewSession, chatSessions } = useChatContext();
   const { file, goToSourcePage } = useFile();
   const { selectedModel } = useModelContext();
 
@@ -292,6 +292,17 @@ export default function ChatPanel() {
                 }} />
               ))}
             </Box>
+            {streamingStatus && (
+              <Typography sx={{
+                fontFamily: 'var(--font-family)',
+                fontSize: '0.72rem',
+                color: 'var(--fg-dim)',
+                mt: 0.75,
+                fontStyle: 'italic',
+              }}>
+                {streamingStatus}
+              </Typography>
+            )}
           </Box>
         )}
       </Box>

@@ -5,7 +5,9 @@ Handles the agentic RAG pipeline: retrieval → tool loop → response stream.
 
 import asyncio
 import json
+import queue
 import re
+import threading
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request
@@ -67,17 +69,26 @@ async def send_session_message(
     await db.commit()
     await db.refresh(user_msg)
 
+    # Generate title in the background so it doesn't block the SSE stream
     if session.title in ["New Chat", "Untitled Session"]:
         result_count = await db.execute(select(func.count()).where(ChatMessage.session_id == session_id))
         count = result_count.scalar()
         if count == 1:
-            new_title = ai_service.generate_chat_title(question)
-            if new_title and new_title != "New Chat":
-                session.title = new_title
-                await db.commit()
-                r = get_redis()
-                if r:
-                    r.delete(f"etag:sessions:{current_user.id}")
+            async def _bg_title():
+                try:
+                    loop = asyncio.get_event_loop()
+                    new_title = await loop.run_in_executor(
+                        None, ai_service.generate_chat_title, question
+                    )
+                    if new_title and new_title != "New Chat":
+                        session.title = new_title
+                        await db.commit()
+                        r = get_redis()
+                        if r:
+                            r.delete(f"etag:sessions:{current_user.id}")
+                except Exception as exc:
+                    logger.warning("bg_title.failed", error=str(exc))
+            asyncio.create_task(_bg_title())
 
     msgs_result = await db.execute(
         select(ChatMessage)
@@ -113,12 +124,23 @@ async def send_session_message(
     except Exception:
         has_documents = False
 
+    # ── SSE generator with heartbeats ─────────────────────────────────────
+    # Runs the agentic loop in a background thread and polls a queue so that
+    # SSE events (progress + heartbeats) flow continuously — preventing
+    # reverse-proxy idle-connection timeouts on Render / Cloudflare.
+
+    _HEARTBEAT_INTERVAL = 10  # seconds between keep-alive pings
+
     async def generate_response():
-        loop = asyncio.get_event_loop()
-        try:
-            ai_result = await loop.run_in_executor(
-                None,
-                lambda: ai_service.answer_with_tools(
+        q: queue.Queue = queue.Queue()
+
+        def on_progress(event: dict):
+            """Called from the background thread inside the agentic loop."""
+            q.put(("progress", event))
+
+        def _run_agentic():
+            try:
+                result = ai_service.answer_with_tools(
                     question=question,
                     chat_history=chat_history,
                     tool_executor=tool_executor,
@@ -129,20 +151,51 @@ async def send_session_message(
                     memory_context=memory_context,
                     preference_context=preference_context,
                     has_documents=has_documents,
-                ),
-            )
-        except Exception as exc:
-            err_str = str(exc)
-            _vectorstore_keywords = ("chroma", "sqlite", "disk image", "corrupt", "no such table",
-                                     "locked", "vector", "collection")
-            if any(kw in err_str.lower() for kw in _vectorstore_keywords):
-                logger.error("vectorstore.unreachable: %s", err_str)
-                yield f"data: {json.dumps({'error': 'Vector store unavailable. Please re-upload your document and try again.'})}\n\n"
-            else:
-                logger.error("ai.failed: %s", err_str)
-                yield f"data: {json.dumps({'error': 'AI response failed. Please try again.'})}\n\n"
-            return
+                    on_progress=on_progress,
+                )
+                q.put(("done", result))
+            except Exception as exc:
+                q.put(("error", exc))
 
+        thread = threading.Thread(target=_run_agentic, daemon=True)
+        thread.start()
+
+        # Poll the queue, yielding SSE events as they arrive.
+        ai_result = None
+        while True:
+            try:
+                kind, payload = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: q.get(timeout=_HEARTBEAT_INTERVAL)
+                )
+            except queue.Empty:
+                # No event within the interval → send heartbeat to keep proxy alive
+                yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                continue
+
+            if kind == "progress":
+                yield f"data: {json.dumps(payload)}\n\n"
+                continue
+
+            if kind == "error":
+                exc = payload
+                err_str = str(exc)
+                _vectorstore_keywords = (
+                    "chroma", "sqlite", "disk image", "corrupt",
+                    "no such table", "locked", "vector", "collection",
+                )
+                if any(kw in err_str.lower() for kw in _vectorstore_keywords):
+                    logger.error("vectorstore.unreachable: %s", err_str)
+                    yield f"data: {json.dumps({'error': 'Vector store unavailable. Please re-upload your document and try again.'})}\n\n"
+                else:
+                    logger.error("ai.failed: %s", err_str)
+                    yield f"data: {json.dumps({'error': 'AI response failed. Please try again.'})}\n\n"
+                return
+
+            if kind == "done":
+                ai_result = payload
+                break
+
+        # ── Post-process the completed result ────────────────────────────────
         answer = ai_result.get("answer", "")
         sources = ai_result.get("sources", [])
         artifacts = ai_result.get("artifacts", [])
@@ -213,7 +266,11 @@ async def send_session_message(
 
         yield f"data: {json.dumps({'done': True, 'answer': answer, 'message_id': assistant_msg.id, 'sources': sources, 'artifacts': artifacts, 'suggestions': suggestions})}\n\n"
 
-    return StreamingResponse(generate_response(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate_response(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/messages/{message_id}/feedback")

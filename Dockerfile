@@ -45,5 +45,5 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=15s --retries=3 \
 # If startup_check.py fails (missing env vars), container exits with code 1
 # and Render marks the deploy as failed — no crash loop.
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "main:app", \
-     "--bind", "0.0.0.0:10000", "--timeout", "120"]
+CMD ["gunicorn", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "main:app", \
+     "--bind", "0.0.0.0:10000", "--timeout", "180"]

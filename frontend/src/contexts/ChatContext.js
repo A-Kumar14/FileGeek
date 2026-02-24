@@ -32,6 +32,7 @@ export function ChatProvider({ children }) {
   const [artifacts, setArtifacts] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [streamingContent, setStreamingContent] = useState(null);
+  const [streamingStatus, setStreamingStatus] = useState(null);
   const phaseTimerRef = useRef(null);
   const localStorageDebounceRef = useRef(null);
   const stopGenerationRef = useRef(false);
@@ -302,15 +303,36 @@ export function ChatProvider({ children }) {
               if (stopGenerationRef.current) return;
               accumulatedContent += chunk;
               setStreamingContent(accumulatedContent);
+              setStreamingStatus(null); // clear status once actual content arrives
+            },
+            onStatus: (evt) => {
+              if (stopGenerationRef.current) return;
+              // Show human-friendly progress text
+              const TOOL_LABELS = {
+                search_documents: 'Searching documents…',
+                generate_quiz: 'Generating quiz…',
+                generate_flashcards: 'Creating flashcards…',
+                create_study_guide: 'Building study guide…',
+                generate_visualization: 'Creating visualization…',
+              };
+              if (evt.type === 'tool_start') {
+                setStreamingStatus(TOOL_LABELS[evt.tool] || `Running ${evt.tool}…`);
+              } else if (evt.type === 'tool_done') {
+                setStreamingStatus('Analyzing results…');
+              } else if (evt.text) {
+                setStreamingStatus(evt.text);
+              }
             },
           });
           setStreamingContent(null);
+          setStreamingStatus(null);
           // If SSE returned null finalData, build from accumulated
           if (!result && accumulatedContent) {
             result = { answer: accumulatedContent, sources: [], artifacts: [], suggestions: [] };
           }
         } catch (err) {
           setStreamingContent(null);
+          setStreamingStatus(null);
           throw err;
         }
       }
@@ -444,7 +466,8 @@ export function ChatProvider({ children }) {
         addMessage: sendMessage,
         isLoading: loading,
         streamingContent,
-        stopGeneration: () => { stopGenerationRef.current = true; setStreamingContent(null); },
+        streamingStatus,
+        stopGeneration: () => { stopGenerationRef.current = true; setStreamingContent(null); setStreamingStatus(null); },
       }}
     >
       {children}

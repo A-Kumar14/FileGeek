@@ -47,7 +47,7 @@ export async function indexDocument(sessionId, config) {
   return resData;
 }
 
-export async function sendSessionMessage(sessionId, { question, deepThink, model, onChunk }) {
+export async function sendSessionMessage(sessionId, { question, deepThink, model, onChunk, onStatus }) {
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
   const token = localStorage.getItem('filegeek-token');
 
@@ -92,6 +92,13 @@ export async function sendSessionMessage(sessionId, { question, deepThink, model
         if (line.startsWith('data: ')) {
           try {
             const data = JSON.parse(line.slice(6));
+            // Heartbeat — ignore silently (keeps proxy alive)
+            if (data.type === 'heartbeat') continue;
+            // Progress events — surface to caller
+            if (data.type === 'status' || data.type === 'tool_start' || data.type === 'tool_done') {
+              if (onStatus) onStatus(data);
+              continue;
+            }
             if (data.chunk !== undefined && onChunk) onChunk(data.chunk);
             // Capture early artifacts event (emitted before text chunks)
             if (data.artifacts && !data.done) {

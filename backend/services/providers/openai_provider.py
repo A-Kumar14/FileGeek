@@ -73,7 +73,7 @@ def answer_openai(svc, context_chunks, question, chat_history, model_override, f
 
 def agentic_openai(svc, question, chat_history, tool_executor, session_id, user_id,
                    file_type, model_override, memory_context, preference_context,
-                   has_documents=False) -> Dict:
+                   has_documents=False, on_progress=None) -> Dict:
     """Agentic tool-calling loop via OpenAI function calling (also used for OpenRouter)."""
     from services.tools import TOOL_DEFINITIONS
     from services.ai_service import get_system_prompt
@@ -134,11 +134,20 @@ def agentic_openai(svc, question, chat_history, tool_executor, session_id, user_
     elif has_documents:
         _forced_tool = "search_documents"
 
+    def _emit(event: dict):
+        if on_progress:
+            try:
+                on_progress(event)
+            except Exception:
+                pass
+
     for _round in range(max_rounds):
         if _round == 0 and _forced_tool:
             _tool_choice = {"type": "function", "function": {"name": _forced_tool}}
         else:
             _tool_choice = "auto"
+
+        _emit({"type": "status", "text": "Thinking…"})
 
         response = None
         last_err = None
@@ -199,7 +208,9 @@ def agentic_openai(svc, question, chat_history, tool_executor, session_id, user_
                 if model_override:
                     fn_args["model"] = model_override
 
+                _emit({"type": "tool_start", "tool": fn_name})
                 result = tool_executor.execute(fn_name, fn_args, session_id, user_id)
+                _emit({"type": "tool_done", "tool": fn_name})
                 tool_calls_log.append({"tool": fn_name, "args": fn_args, "result_keys": list(result.keys())})
 
                 if result.get("artifact_type"):
@@ -211,6 +222,7 @@ def agentic_openai(svc, question, chat_history, tool_executor, session_id, user_
                     "content": json.dumps(result),
                 })
         else:
+            _emit({"type": "status", "text": "Generating response…"})
             answer = choice.message.content or ""
             sources, suggestions = svc._parse_response_extras(answer, tool_calls_log)
             return {

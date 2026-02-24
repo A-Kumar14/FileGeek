@@ -167,21 +167,24 @@ class ChatEngine:
                 # Serialize to plain dict so the next round's API call receives valid JSON.
                 # Passing the raw ChatCompletionMessage object can cause serialization
                 # issues in some openai SDK versions when used as a message in a later call.
-                try:
-                    assistant_dict = choice.message.model_dump(exclude_unset=False)
-                except AttributeError:
-                    assistant_dict = {
-                        "role": "assistant",
-                        "content": choice.message.content,
-                        "tool_calls": [
-                            {
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                            }
-                            for tc in (tool_calls or [])
-                        ],
-                    }
+                # Manually build a minimal dict with only the fields the API expects.
+                # model_dump() includes SDK-internal fields (refusal, function_call)
+                # that some OpenRouter providers reject or mishandle.
+                assistant_dict = {"role": "assistant"}
+                if choice.message.content is not None:
+                    assistant_dict["content"] = choice.message.content
+                if tool_calls:
+                    assistant_dict["tool_calls"] = [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in tool_calls
+                    ]
                 messages.append(assistant_dict)
 
                 for tc in tool_calls:

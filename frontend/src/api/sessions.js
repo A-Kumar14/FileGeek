@@ -102,8 +102,11 @@ export async function sendSessionMessage(sessionId, { question, deepThink, model
             // Backend error event — surface immediately so the catch block in
             // ChatContext shows a proper error instead of falling to legacy flow
             if (data.error) {
+              // Intentional backend error — propagate immediately.
+              // Must be re-thrown from the catch below since we're inside a try.
               throw Object.assign(new Error(data.error), {
                 response: { status: 500, data: { error: data.error } },
+                _sseError: true,
               });
             }
             if (data.chunk !== undefined && onChunk) onChunk(data.chunk);
@@ -112,7 +115,11 @@ export async function sendSessionMessage(sessionId, { question, deepThink, model
               earlyArtifacts = data.artifacts;
             }
             if (data.done) finalData = data;
-          } catch { }
+          } catch (e) {
+            // Re-throw intentional backend error events; only swallow JSON parse
+            // errors from malformed SSE data lines.
+            if (e._sseError) throw e;
+          }
         }
       }
     }

@@ -132,7 +132,7 @@ class ChatEngine:
 
         artifacts = []
         tool_calls_log = []
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         for round_num in range(self.MAX_ROUNDS):
             # Determine tool_choice
@@ -151,7 +151,10 @@ class ChatEngine:
                     tool_choice=tool_choice,
                 )
             except Exception as exc:
-                logger.error("ChatEngine.chat failed round=%d: %s", round_num, exc)
+                logger.error(
+                    "ChatEngine.chat failed round=%d model=%s: %s",
+                    round_num, resolved_model, exc,
+                )
                 return {
                     "answer": "I encountered an error processing your request.",
                     "sources": [], "artifacts": [], "suggestions": [],
@@ -161,8 +164,25 @@ class ChatEngine:
             tool_calls = getattr(choice.message, "tool_calls", None)
 
             if choice.finish_reason == "tool_calls" or (tool_calls and len(tool_calls) > 0):
-                # Append assistant message with tool calls
-                messages.append(choice.message)
+                # Serialize to plain dict so the next round's API call receives valid JSON.
+                # Passing the raw ChatCompletionMessage object can cause serialization
+                # issues in some openai SDK versions when used as a message in a later call.
+                try:
+                    assistant_dict = choice.message.model_dump(exclude_unset=False)
+                except AttributeError:
+                    assistant_dict = {
+                        "role": "assistant",
+                        "content": choice.message.content,
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                            }
+                            for tc in (tool_calls or [])
+                        ],
+                    }
+                messages.append(assistant_dict)
 
                 for tc in tool_calls:
                     fn_name = tc.function.name

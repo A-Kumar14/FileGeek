@@ -99,6 +99,13 @@ export async function sendSessionMessage(sessionId, { question, deepThink, model
               if (onStatus) onStatus(data);
               continue;
             }
+            // Backend error event — surface immediately so the catch block in
+            // ChatContext shows a proper error instead of falling to legacy flow
+            if (data.error) {
+              throw Object.assign(new Error(data.error), {
+                response: { status: 500, data: { error: data.error } },
+              });
+            }
             if (data.chunk !== undefined && onChunk) onChunk(data.chunk);
             // Capture early artifacts event (emitted before text chunks)
             if (data.artifacts && !data.done) {

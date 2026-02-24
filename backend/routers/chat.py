@@ -18,8 +18,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 
+from database import AsyncSessionLocal
 from dependencies import CurrentUser, DB
 from logging_config import get_logger
 from models_async import ChatMessage, SessionDocument, StudySession
@@ -86,8 +87,16 @@ async def send_session_message(
                 try:
                     new_title = await chat_engine.generate_chat_title(question)
                     if new_title and new_title != "New Chat":
-                        session.title = new_title
-                        await db.commit()
+                        # Use a fresh session — never reuse the request's db in a
+                        # background task; concurrent commits on the same session
+                        # can leave it in an invalid state for the main generator.
+                        async with AsyncSessionLocal() as bg_db:
+                            await bg_db.execute(
+                                update(StudySession)
+                                .where(StudySession.id == session_id)
+                                .values(title=new_title)
+                            )
+                            await bg_db.commit()
                         r = get_redis()
                         if r:
                             r.delete(f"etag:sessions:{current_user.id}")

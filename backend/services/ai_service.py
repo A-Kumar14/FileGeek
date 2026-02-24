@@ -127,6 +127,7 @@ class AIService:
         self._openai_client_instance = None
         self._gemini_configured = False
         self._genai_module = None
+        self.embeddings = None  # default; overwritten below if keys are present
 
         if self.provider == "gemini":
             api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
@@ -358,7 +359,7 @@ class AIService:
             return {
                 "answer": (
                     f"[Model {model_override} does not support tool calling. "
-                    "Please switch to Grok-3, GPT-4o, or Gemini 2.0 Flash for full document analysis.]"
+                    "Please switch to GPT-4o or Gemini 2.0 Flash for full document analysis.]"
                 ),
                 "sources": [],
                 "artifacts": [],

@@ -63,7 +63,8 @@ class LLMService:
     # ── Resolve model ID ─────────────────────────────────────────────────────
 
     def resolve_model(self, model_id: Optional[str]) -> str:
-        if not model_id:
+        # Treat None, empty string, and the literal strings "null"/"none" as missing
+        if not model_id or (isinstance(model_id, str) and model_id.strip().lower() in ("null", "none")):
             return self._default_model()
         if self._provider == "openrouter":
             if "/" in model_id:
@@ -72,11 +73,16 @@ class LLMService:
         return model_id
 
     def _default_model(self) -> str:
+        def _env(var: str, fallback: str) -> str:
+            v = os.getenv(var, "").strip()
+            # Treat empty string and literal "null"/"none" (common .env mistake) as unset
+            return fallback if not v or v.lower() in ("null", "none") else v
+
         if self._provider == "openrouter":
-            return os.getenv("OPENROUTER_CHAT_MODEL", "openai/gpt-4o")
+            return _env("OPENROUTER_CHAT_MODEL", "openai/gpt-4o")
         if self._provider == "gemini":
-            return os.getenv("GEMINI_CHAT_MODEL", "gemini-2.0-flash")
-        return os.getenv("OPENAI_CHAT_MODEL", "gpt-4o")
+            return _env("GEMINI_CHAT_MODEL", "gemini-2.0-flash")
+        return _env("OPENAI_CHAT_MODEL", "gpt-4o")
 
     # ── Async chat ───────────────────────────────────────────────────────────
 
@@ -92,6 +98,11 @@ class LLMService:
         Falls back to plain completion if tool_choice call fails.
         """
         resolved = self.resolve_model(model)
+        if not resolved:
+            raise ValueError(
+                f"LLMService.chat: could not resolve a valid model ID "
+                f"(provider={self._provider})"
+            )
 
         if self._provider == "gemini" and not self._is_openrouter_model(resolved):
             return await self._chat_gemini(messages, resolved, tools, tool_choice)

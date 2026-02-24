@@ -12,9 +12,19 @@ from sqlalchemy.exc import OperationalError
 
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "sqlite+aiosqlite:///./instance/users.db",
+def _normalize_async_url(url: str) -> str:
+    """
+    Render's free PostgreSQL gives a plain  postgresql://  URL.
+    SQLAlchemy's async engine needs  postgresql+asyncpg://  instead.
+    """
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+asyncpg://" + url[len(prefix):]
+    return url
+
+
+DATABASE_URL = _normalize_async_url(
+    os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./instance/users.db")
 )
 
 
@@ -130,9 +140,12 @@ def _ensure_healthy_db() -> None:
 # a corrupt file never reaches the async driver.
 _ensure_healthy_db()
 
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+
 engine = create_async_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    # check_same_thread is a SQLite-only option; passing it to asyncpg raises an error
+    connect_args={"check_same_thread": False} if _is_sqlite else {},
     echo=False,
     pool_pre_ping=True,   # Detect stale connections before use — eliminates "not checked in" warnings
     pool_recycle=3600,    # Recycle connections after 1 hour to avoid ghost handles
@@ -151,9 +164,9 @@ async def get_db():
 
 
 async def init_db():
-    """Create all tables and enable WAL mode for SQLite."""
+    """Create all tables.  Enable WAL mode for SQLite; no-op for PostgreSQL."""
     async with engine.begin() as conn:
-        if DATABASE_URL.startswith("sqlite"):
+        if _is_sqlite:
             try:
                 await conn.execute(text("PRAGMA journal_mode=WAL"))
             except Exception as wal_exc:

@@ -37,21 +37,26 @@ limiter = Limiter(key_func=get_remote_address)
 async def lifespan(app: FastAPI):
     await init_db()
     logger.info("database.initialized")
-    # Safe migration: add session_type column if it doesn't exist yet
-    import sqlite3 as _sqlite3, os as _os
+
+    # Safe migration: add session_type column if it doesn't exist yet.
+    # Only needed for existing SQLite DBs — fresh PostgreSQL DBs get the
+    # column from create_all() above.
     from database import DATABASE_URL as _DATABASE_URL
-    _db_path = _DATABASE_URL.replace("sqlite+aiosqlite:///", "")
-    if _db_path.startswith("./"):
-        _db_path = _os.path.join(_os.path.dirname(__file__), _db_path[2:])
-    try:
-        _conn = _sqlite3.connect(_db_path)
-        _conn.execute("ALTER TABLE study_sessions ADD COLUMN session_type TEXT DEFAULT 'chat'")
-        _conn.commit()
-        logger.info("migration.added_session_type")
-    except _sqlite3.OperationalError:
-        pass  # column already exists
-    finally:
-        _conn.close()
+    if _DATABASE_URL.startswith("sqlite"):
+        import sqlite3 as _sqlite3, os as _os
+        _db_path = _DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+        if _db_path.startswith("./"):
+            _db_path = _os.path.join(_os.path.dirname(__file__), _db_path[2:])
+        try:
+            _conn = _sqlite3.connect(_db_path)
+            _conn.execute("ALTER TABLE study_sessions ADD COLUMN session_type TEXT DEFAULT 'chat'")
+            _conn.commit()
+            logger.info("migration.added_session_type")
+        except _sqlite3.OperationalError:
+            pass  # column already exists
+        finally:
+            _conn.close()
+
     yield
 
 

@@ -9,6 +9,10 @@ aiosqlite>=0.20.0
 sqlalchemy[asyncio]==2.0.36
 alembic==1.14.1
 
+# PostgreSQL drivers (used when DATABASE_URL points to Render's free Postgres)
+asyncpg>=0.29.0          # async driver for SQLAlchemy async engine
+psycopg2-binary>=2.9.9   # sync driver for Celery workers
+
 # Werkzeug still needed for secure_filename
 Werkzeug==3.1.3
 

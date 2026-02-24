@@ -1,13 +1,34 @@
 """Pydantic v2 request/response schemas for FastAPI."""
 
+import re
 from typing import Optional
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
 class SignupRequest(BaseModel):
     name: str = Field(min_length=1)
     email: str = Field(min_length=1)
-    password: str = Field(min_length=6)
+    password: str = Field(min_length=8)
+
+    @field_validator("email")
+    @classmethod
+    def email_format(cls, v: str) -> str:
+        v = v.strip().lower()
+        parts = v.split("@")
+        if len(parts) != 2 or not parts[0] or "." not in parts[1]:
+            raise ValueError("Invalid email address")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"[0-9]", v):
+            raise ValueError("Password must contain at least one number")
+        if not re.search(r"[^A-Za-z0-9]", v):
+            raise ValueError("Password must contain at least one special character")
+        return v
 
 
 class LoginRequest(BaseModel):

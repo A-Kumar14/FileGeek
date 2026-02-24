@@ -4,6 +4,7 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const apiClient = axios.create({
   baseURL: API_URL,
+  withCredentials: true,  // send httpOnly refresh cookie on every request (needed for cross-origin Render+Vercel)
 });
 
 apiClient.interceptors.request.use((config) => {

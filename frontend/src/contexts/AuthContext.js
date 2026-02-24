@@ -93,6 +93,24 @@ apiClient.interceptors.response.use(
   }
 );
 
+/**
+ * Extract a human-readable error message from an Axios error.
+ * FastAPI returns { detail: "string" } for HTTPException (401, 409, etc.)
+ * and { detail: [{msg: "...", loc: [...]}] } for validation errors (422).
+ */
+function _extractAuthError(err, defaultMsg) {
+  const data = err.response?.data;
+  if (!data) return err.message || defaultMsg;
+  const { detail, error } = data;
+  if (Array.isArray(detail) && detail.length > 0) {
+    // Pydantic validation error — strip the "Value error, " prefix added by Pydantic v2
+    return (detail[0]?.msg || defaultMsg).replace(/^Value error,\s*/i, '');
+  }
+  if (typeof detail === 'string') return detail;
+  if (typeof error === 'string') return error;
+  return err.message || defaultMsg;
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     const stored = localStorage.getItem('filegeek-user');
@@ -139,7 +157,7 @@ export function AuthProvider({ children }) {
     try {
       const res = await apiClient.post('/auth/login', { email, password }, { withCredentials: true });
       const { token, access_token, user: userData } = res.data;
-      // Prefer short-lived access_token from new backend; fall back to legacy 24h token
+      // Prefer short-lived access_token from new backend; fall back to legacy token
       const activeToken = access_token || token;
       _accessToken = activeToken;
       localStorage.setItem('filegeek-token', activeToken);
@@ -147,8 +165,7 @@ export function AuthProvider({ children }) {
       apiClient.defaults.headers.common['Authorization'] = `Bearer ${activeToken}`;
       setUser(userData);
     } catch (err) {
-      const msg = err.response?.data?.error || err.message || 'Login failed';
-      throw new Error(msg);
+      throw new Error(_extractAuthError(err, 'Login failed'));
     }
   }, []);
 
@@ -163,8 +180,7 @@ export function AuthProvider({ children }) {
       apiClient.defaults.headers.common['Authorization'] = `Bearer ${activeToken}`;
       setUser(userData);
     } catch (err) {
-      const msg = err.response?.data?.error || err.message || 'Sign up failed';
-      throw new Error(msg);
+      throw new Error(_extractAuthError(err, 'Sign up failed'));
     }
   }, []);
 

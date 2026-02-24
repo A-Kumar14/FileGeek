@@ -27,14 +27,22 @@ if not JWT_SECRET:
         "FATAL: JWT_SECRET environment variable is not set. "
         "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
     )
-# Access token: 15 minutes (short-lived, stored in memory by frontend)
-ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "15"))
+
+# Access token: 60 minutes (short-lived, stored in memory by frontend)
+ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "60"))
 # Refresh token: 30 days (long-lived, stored in httpOnly cookie)
 REFRESH_TOKEN_DAYS = int(os.getenv("REFRESH_TOKEN_DAYS", "30"))
-# Legacy fallback for clients that haven't migrated yet
-JWT_EXPIRY_HOURS = 24
 
 _REFRESH_COOKIE = "filegeek_refresh"
+
+
+def _is_https() -> bool:
+    """Return True when running behind HTTPS (production)."""
+    if os.getenv("HTTPS_ONLY", "").lower() == "true":
+        return True
+    if os.getenv("ENVIRONMENT", "").lower() in ("production", "prod"):
+        return True
+    return False
 
 
 def _create_access_token(user: User) -> str:
@@ -58,24 +66,17 @@ def _create_refresh_token(user: User) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
 
-def _create_token(user: User) -> str:
-    """Legacy 24-hour token — kept for backward compatibility with app.py clients."""
-    payload = {
-        "user_id": user.id,
-        "email": user.email,
-        "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
-
-
 def _set_refresh_cookie(response: Response, token: str) -> None:
+    https = _is_https()
     response.set_cookie(
         key=_REFRESH_COOKIE,
         value=token,
         httponly=True,
-        secure=os.getenv("HTTPS_ONLY", "false").lower() == "true",
-        samesite="strict",
+        # samesite="none" is required for cross-origin (Vercel → Render).
+        # "none" requires secure=True, which is only valid over HTTPS.
+        # Fall back to "lax" for local HTTP development.
+        secure=https,
+        samesite="none" if https else "lax",
         max_age=REFRESH_TOKEN_DAYS * 86400,
         path="/auth/refresh",
     )
@@ -92,8 +93,8 @@ async def signup(data: SignupRequest, request: Request, response: Response, db: 
     if result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    loop = asyncio.get_event_loop()
-    salt = await loop.run_in_executor(None, partial(bcrypt.gensalt, rounds=10))
+    loop = asyncio.get_running_loop()
+    salt = await loop.run_in_executor(None, partial(bcrypt.gensalt, rounds=12))
     password_hash = await loop.run_in_executor(
         None, partial(bcrypt.hashpw, password.encode("utf-8"), salt)
     )
@@ -106,11 +107,9 @@ async def signup(data: SignupRequest, request: Request, response: Response, db: 
     refresh_token = _create_refresh_token(user)
     _set_refresh_cookie(response, refresh_token)
 
-    # Also include legacy 24h token for backward compatibility
-    legacy_token = _create_token(user)
     return {
-        "token": legacy_token,           # legacy — long-lived for older clients
-        "access_token": access_token,    # new — short-lived, store in memory
+        "token": access_token,        # kept for backward compat with older frontend builds
+        "access_token": access_token,
         "user": {"id": user.id, "name": user.name, "email": user.email},
     }
 
@@ -126,7 +125,7 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     pw_matches = await loop.run_in_executor(
         None, partial(bcrypt.checkpw, password.encode("utf-8"), user.password_hash.encode("utf-8"))
     )
@@ -137,9 +136,8 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     refresh_token = _create_refresh_token(user)
     _set_refresh_cookie(response, refresh_token)
 
-    legacy_token = _create_token(user)
     return {
-        "token": legacy_token,
+        "token": access_token,
         "access_token": access_token,
         "user": {"id": user.id, "name": user.name, "email": user.email},
     }
@@ -172,7 +170,7 @@ async def refresh_token(
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    # Issue a new access token (rotate refresh token for forward secrecy)
+    # Issue new tokens (rotate refresh token for forward secrecy)
     new_access = _create_access_token(user)
     new_refresh = _create_refresh_token(user)
     _set_refresh_cookie(response, new_refresh)
@@ -183,5 +181,11 @@ async def refresh_token(
 @router.post("/logout")
 async def logout(response: Response):
     """Clear the refresh token cookie."""
-    response.delete_cookie(key=_REFRESH_COOKIE, path="/auth/refresh")
+    https = _is_https()
+    response.delete_cookie(
+        key=_REFRESH_COOKIE,
+        path="/auth/refresh",
+        secure=https,
+        samesite="none" if https else "lax",
+    )
     return {"message": "Logged out"}

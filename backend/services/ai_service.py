@@ -102,13 +102,16 @@ class AIService:
 
     # Map shorthand model IDs → OpenRouter full paths when provider is openrouter
     _OR_ALIASES: dict = {
-        "gpt-4o":           "openai/gpt-4o",
-        "gpt-4o-mini":      "openai/gpt-4o-mini",
-        "gemini-2.0-flash": "google/gemini-2.0-flash-exp:free",
-        "grok-3":           "x-ai/grok-3",
-        "grok-3-mini":      "x-ai/grok-3-mini",
-        "claude-3.5-sonnet":"anthropic/claude-3.5-sonnet",
-        "claude-3-haiku":   "anthropic/claude-3-haiku",
+        "gpt-4o":            "openai/gpt-4o",
+        "gpt-4o-mini":       "openai/gpt-4o-mini",
+        "gemini-2.0-flash":  "google/gemini-2.0-flash-exp:free",
+        "gemini-3-flash":    "google/gemini-3-flash-preview",
+        "gemini-3.1-pro":    "google/gemini-3.1-pro-preview",
+        "grok-3":            "x-ai/grok-3",
+        "grok-3-mini":       "x-ai/grok-3-mini",
+        "claude-3.5-sonnet": "anthropic/claude-3.5-sonnet",
+        "claude-sonnet-4.5": "anthropic/claude-sonnet-4.5",
+        "claude-3-haiku":    "anthropic/claude-3-haiku",
     }
 
     # Provider-aware aliases

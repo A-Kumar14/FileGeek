@@ -12,14 +12,14 @@ export const MODELS = [
   { id: 'openai/o3-mini',                            name: 'o3 Mini',            provider: 'openrouter',  description: 'OpenAI reasoning model',                    badge: 'OPENAI'   },
 
   // ── Anthropic ─────────────────────────────────────────────────────────────
-  { id: 'anthropic/claude-sonnet-4-5',               name: 'Claude Sonnet 4.5',  provider: 'openrouter',  description: 'Anthropic\'s latest model',                 badge: 'CLAUDE'   },
+  { id: 'anthropic/claude-sonnet-4.5',               name: 'Claude Sonnet 4.5',  provider: 'openrouter',  description: 'Anthropic\'s latest model',                 badge: 'CLAUDE'   },
   { id: 'anthropic/claude-3.5-sonnet',               name: 'Claude 3.5 Sonnet',  provider: 'openrouter',  description: 'Strong reasoning & coding',                 badge: 'CLAUDE'   },
   { id: 'anthropic/claude-3-haiku',                  name: 'Claude 3 Haiku',     provider: 'openrouter',  description: 'Fast & affordable Claude',                  badge: 'CLAUDE'   },
 
   // ── Google ────────────────────────────────────────────────────────────────
-  { id: 'google/gemini-2.0-flash-exp:free',          name: 'Gemini 2.0 Flash',   provider: 'openrouter',  description: 'Latest Google model — free tier',           badge: 'FREE'     },
-  { id: 'google/gemini-pro-1.5',                     name: 'Gemini 1.5 Pro',     provider: 'openrouter',  description: 'Google 1M context window',                  badge: 'GOOGLE'   },
-  { id: 'google/gemini-flash-1.5',                   name: 'Gemini 1.5 Flash',   provider: 'openrouter',  description: 'Fast Google model',                         badge: 'GOOGLE'   },
+  { id: 'google/gemini-3-flash-preview',             name: 'Gemini 3 Flash',     provider: 'openrouter',  description: 'Latest fast Google model',                  badge: 'GOOGLE'   },
+  { id: 'google/gemini-3.1-pro-preview',             name: 'Gemini 3.1 Pro',     provider: 'openrouter',  description: 'Google advanced reasoning, 1M context',     badge: 'GOOGLE'   },
+  { id: 'google/gemini-2.0-flash-exp:free',          name: 'Gemini 2.0 Flash',   provider: 'openrouter',  description: 'Google model — free tier',                  badge: 'FREE'     },
 
   // ── xAI ───────────────────────────────────────────────────────────────────
   { id: 'x-ai/grok-3',                               name: 'Grok 3',             provider: 'openrouter',  description: 'xAI Grok 3 — strong reasoning',             badge: 'XAI'      },

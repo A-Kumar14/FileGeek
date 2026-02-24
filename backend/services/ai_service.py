@@ -348,7 +348,10 @@ class AIService:
     ) -> Dict:
         """Agentic loop: send message, handle tool calls, return final answer + artifacts."""
         # Models known to not support function/tool calling — fall back to non-agentic flow.
-        _NO_TOOLS_MODELS = {"DeepSeek-R1", "DeepSeek-V3", "o1", "o1-mini", "deepseek-r1", "deepseek-v3"}
+        _NO_TOOLS_MODELS = {
+            "DeepSeek-R1", "DeepSeek-V3", "o1", "o1-mini", "deepseek-r1", "deepseek-v3",
+            "deepseek/deepseek-r1",  # OpenRouter full path
+        }
         if model_override and model_override in _NO_TOOLS_MODELS:
             logger.info("model '%s' does not support tools — using non-agentic answer_from_context", model_override)
             return {

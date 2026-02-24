@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useCallback, useRef, useEffect, useMemo } from 'react';
+import React, { createContext, useState, useContext, useCallback, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import useChat from '../hooks/useChat';
 import { useFile } from './FileContext';

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import queryClient from './api/queryClient';
 import './App.css';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -81,6 +82,7 @@ export default function App() {
               <AnnotationProvider>
                 <a href="#main-content" className="skip-to-content">Skip to content</a>
                 <AppRoutes />
+                <SpeedInsights />
               </AnnotationProvider>
             </ChatProvider>
           </FileProvider>

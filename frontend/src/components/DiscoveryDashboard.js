@@ -14,13 +14,21 @@ export default function DiscoveryDashboard() {
 
     useEffect(() => {
         setMounted(true);
+        let rafId = null;
         const handleMouseMove = (e) => {
-            const x = (e.clientX / window.innerWidth - 0.5) * 40;
-            const y = (e.clientY / window.innerHeight - 0.5) * 40;
-            setMousePos({ x, y });
+            if (rafId) return;
+            rafId = requestAnimationFrame(() => {
+                const x = (e.clientX / window.innerWidth - 0.5) * 40;
+                const y = (e.clientY / window.innerHeight - 0.5) * 40;
+                setMousePos({ x, y });
+                rafId = null;
+            });
         };
         window.addEventListener('mousemove', handleMouseMove);
-        return () => window.removeEventListener('mousemove', handleMouseMove);
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            if (rafId) cancelAnimationFrame(rafId);
+        };
     }, []);
 
     return (

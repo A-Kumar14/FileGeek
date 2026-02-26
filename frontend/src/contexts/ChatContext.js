@@ -349,6 +349,16 @@ export function ChatProvider({ children }) {
         };
       }
 
+      // Guard: empty or null answer means the request timed out or failed silently
+      if (!result || !result.answer) {
+        result = {
+          answer: 'No response was received. The request may have timed out — please try again.',
+          sources: [],
+          artifacts: [],
+          suggestions: [],
+        };
+      }
+
       const assistantMsg = {
         role: 'assistant',
         content: result.answer,

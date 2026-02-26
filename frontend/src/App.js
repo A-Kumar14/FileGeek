@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import queryClient from './api/queryClient';
@@ -8,13 +8,14 @@ import { FileProvider } from './contexts/FileContext';
 import { ChatProvider } from './contexts/ChatContext';
 import { ModelProvider } from './contexts/ModelContext';
 import { AnnotationProvider } from './contexts/AnnotationContext';
-import LoginPage from './pages/LoginPage';
-import SignUpPage from './pages/SignUpPage';
-import SettingsPage from './pages/SettingsPage';
-import MainLayout from './pages/MainLayout';
-import AnalyticsPage from './pages/AnalyticsPage';
-import ReviewQueuePage from './pages/ReviewQueuePage';
-import ExplorePage from './pages/ExplorePage';
+
+const LoginPage       = lazy(() => import('./pages/LoginPage'));
+const SignUpPage      = lazy(() => import('./pages/SignUpPage'));
+const SettingsPage    = lazy(() => import('./pages/SettingsPage'));
+const MainLayout      = lazy(() => import('./pages/MainLayout'));
+const AnalyticsPage   = lazy(() => import('./pages/AnalyticsPage'));
+const ReviewQueuePage = lazy(() => import('./pages/ReviewQueuePage'));
+const ExplorePage     = lazy(() => import('./pages/ExplorePage'));
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth();
@@ -80,7 +81,9 @@ export default function App() {
             <ChatProvider>
               <AnnotationProvider>
                 <a href="#main-content" className="skip-to-content">Skip to content</a>
-                <AppRoutes />
+                <Suspense fallback={null}>
+                  <AppRoutes />
+                </Suspense>
               </AnnotationProvider>
             </ChatProvider>
           </FileProvider>

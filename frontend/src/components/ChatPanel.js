@@ -151,7 +151,7 @@ export default function ChatPanel() {
                 }
               >
                 {/* Copy button for assistant messages */}
-                {msg.role === 'assistant' && !msg.isStreaming && (
+                {msg.role === 'assistant' && !msg.isStreaming && msg.content && (
                   <Box
                     onClick={() => handleCopy(msg.id || index, msg.content)}
                     sx={{

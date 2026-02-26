@@ -108,13 +108,17 @@ async def get_related_documents(
 ):
     """Return semantically related documents from other sessions."""
     related_raw = await rag_service.find_related_documents_async(session_id, current_user.id)
-    enriched = []
-    for item in related_raw:
-        sess = await db.get(StudySession, item["session_id"])
-        enriched.append({
-            **item,
-            "session_title": sess.title if sess else "Unknown Session",
-        })
+    if not related_raw:
+        return {"related": []}
+    session_ids = list({item["session_id"] for item in related_raw})
+    rows = await db.execute(
+        select(StudySession.id, StudySession.title).where(StudySession.id.in_(session_ids))
+    )
+    title_map = {row.id: row.title for row in rows}
+    enriched = [
+        {**item, "session_title": title_map.get(item["session_id"], "Unknown Session")}
+        for item in related_raw
+    ]
     return {"related": enriched}
 
 

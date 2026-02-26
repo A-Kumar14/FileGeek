@@ -141,6 +141,14 @@ async def send_session_message(
         # Send initial heartbeat immediately so the client knows we're alive
         yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
 
+        # Queue lets the on_progress callback (called from the task's thread)
+        # push status/tool events into the SSE stream without blocking.
+        progress_queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
+
+        def _on_progress(evt: dict):
+            loop.call_soon_threadsafe(progress_queue.put_nowait, evt)
+
         # Run the agentic loop as a background task
         task = asyncio.create_task(
             chat_engine.generate_response(
@@ -154,15 +162,31 @@ async def send_session_message(
                 has_documents=has_documents,
                 memory_context=memory_context,
                 preference_context=preference_context,
+                on_progress=_on_progress,
             )
         )
 
-        # Poll with heartbeats while the task is running
+        # Poll: drain progress events first, then wait/heartbeat
         while not task.done():
+            # Flush any queued progress events immediately
+            while not progress_queue.empty():
+                try:
+                    evt = progress_queue.get_nowait()
+                    yield f"data: {json.dumps({'type': evt.get('type'), 'tool': evt.get('tool'), 'text': evt.get('text')})}\n\n"
+                except asyncio.QueueEmpty:
+                    break
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=_HEARTBEAT_INTERVAL)
             except asyncio.TimeoutError:
                 yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+
+        # Flush any remaining progress events after task completes
+        while not progress_queue.empty():
+            try:
+                evt = progress_queue.get_nowait()
+                yield f"data: {json.dumps({'type': evt.get('type'), 'tool': evt.get('tool'), 'text': evt.get('text')})}\n\n"
+            except asyncio.QueueEmpty:
+                break
 
         # Check for exception
         if task.exception():

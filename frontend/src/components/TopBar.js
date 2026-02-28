@@ -1,6 +1,7 @@
 import React from 'react';
 import { AppBar, Toolbar, Typography, IconButton, Box, Tooltip } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
+import logo from '../assets/logo.svg';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import { useFile } from '../contexts/FileContext';
@@ -35,17 +36,7 @@ export default function TopBar({ onOpenSettings }) {
           onClick={handleNew}
           sx={{ display: 'flex', alignItems: 'center', gap: 0.75, cursor: 'pointer', mr: 1 }}
         >
-          {/* Purple logo orb */}
-          <Box
-            sx={{
-              width: 24,
-              height: 24,
-              borderRadius: '50%',
-              bgcolor: 'var(--accent)',
-              boxShadow: '0 0 12px rgba(249,115,22,0.3)',
-              flexShrink: 0,
-            }}
-          />
+          <img src={logo} alt="FileGeek" width={24} height={24} style={{ color: 'var(--accent)', flexShrink: 0 }} />
           <Typography
             sx={{
               fontWeight: 700,

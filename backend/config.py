@@ -69,12 +69,15 @@ class Config:
 
     @classmethod
     def validate(cls):
-        if not cls.OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY environment variable is required")
-
-        if not cls.OPENAI_API_KEY.startswith('sk-'):
-            raise ValueError("Invalid OpenAI API key format")
-
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
+        poe_key = os.getenv("POE_API_KEY")
+        openai_key = cls.OPENAI_API_KEY
+        if not poe_key and not openai_key:
+            _log.warning(
+                "Neither POE_API_KEY nor OPENAI_API_KEY is set. "
+                "AI features will not work without at least one provider key."
+            )
         return True
 
     @classmethod

@@ -5,6 +5,7 @@ import { ThemeProviderWrapper } from './theme/ThemeContext';
 import './tailwind.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import { register as registerSW } from './serviceWorkerRegistration';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
@@ -18,3 +19,6 @@ root.render(
 );
 
 reportWebVitals();
+
+// Enable offline-first caching in production builds.
+registerSW();

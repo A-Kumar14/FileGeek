@@ -1,4 +1,9 @@
-"""SQLAlchemy 2.x models (async-compatible) for FastAPI."""
+"""SQLAlchemy 2.x models (async-compatible) for FastAPI.
+
+Note: models.py (Flask-SQLAlchemy legacy models) was removed. All ORM models
+live here. Legacy files auth.py, app.py, and tasks/message_tasks.py that
+imported from models.py are themselves dead code from the Flask era.
+"""
 
 import json
 import uuid
@@ -6,7 +11,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from sqlalchemy import (
-    Integer, String, Text, Float, DateTime, LargeBinary,
+    Boolean, Integer, String, Text, Float, DateTime, LargeBinary,
     ForeignKey, UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -234,6 +239,19 @@ class DocumentChunk(Base):
     embedding: Mapped[bytes] = mapped_column(LargeBinary)  # numpy float32 raw bytes
     pages: Mapped[Optional[str]] = mapped_column(Text, default="[]")  # JSON list of page nums
     chunk_index: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

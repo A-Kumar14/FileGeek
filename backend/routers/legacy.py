@@ -1,12 +1,16 @@
 """
-routers/legacy.py — Stateless /upload, /ask, and /s3/presign endpoints (backward compat).
-These bypass session management and do ad-hoc RAG directly on uploaded files.
+routers/legacy.py — Stateless /upload, /ask, and /s3/presign endpoints (deprecated).
+
+These bypass session management and are DISABLED by default.
+Enable only for migration purposes via: LEGACY_ENDPOINTS=true
 """
 
 import json
 import os
 import uuid
 from datetime import datetime
+
+LEGACY_ENABLED = os.getenv("LEGACY_ENDPOINTS", "false").lower() == "true"
 
 from fastapi import APIRouter, HTTPException, Request
 from slowapi import Limiter
@@ -33,6 +37,8 @@ ALLOWED_URL_PREFIXES = Config.ALLOWED_URL_PREFIXES
 async def s3_presign(
     data: S3PresignRequest, request: Request, current_user: CurrentUser, db: DB
 ):
+    if not LEGACY_ENABLED:
+        raise HTTPException(status_code=410, detail="This endpoint has been retired. Use /sessions.")
     if not Config.S3_ENABLED:
         raise HTTPException(status_code=404, detail="S3 uploads not enabled")
 
@@ -65,6 +71,8 @@ async def s3_presign(
 @limiter.limit("20/minute")
 async def upload_file(request: Request, current_user: CurrentUser, db: DB):
     """Legacy multipart upload endpoint (kept for backward compat)."""
+    if not LEGACY_ENABLED:
+        raise HTTPException(status_code=410, detail="This endpoint has been retired. Use /sessions.")
     from langchain_core.documents import Document as LCDocument
     from werkzeug.utils import secure_filename
 
@@ -195,6 +203,8 @@ async def upload_file(request: Request, current_user: CurrentUser, db: DB):
 @limiter.limit("20/minute")
 async def ask(request: Request, current_user: CurrentUser, db: DB):
     """Legacy ask endpoint: file URLs + question → RAG pipeline."""
+    if not LEGACY_ENABLED:
+        raise HTTPException(status_code=410, detail="This endpoint has been retired. Use /sessions.")
     import requests as http_requests
     from langchain_core.documents import Document as LCDocument
     from werkzeug.utils import secure_filename

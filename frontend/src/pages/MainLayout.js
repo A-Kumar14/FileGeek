@@ -7,11 +7,17 @@ import SettingsContent from './SettingsContent';
 import ArtifactPanel from '../components/ArtifactPanel';
 import GlobalCommandBar from '../components/GlobalCommandBar';
 import LeftDrawer from '../components/LeftDrawer';
+import ErrorBoundary from '../components/ErrorBoundary';
+import OnboardingModal from '../components/OnboardingModal';
 import { useChatContext } from '../contexts/ChatContext';
 
 
 export default function MainLayout() {
-  const { artifacts } = useChatContext();
+  const { artifacts, chatSessions } = useChatContext();
+
+  const [onboardingOpen, setOnboardingOpen] = useState(() => {
+    return !localStorage.getItem('filegeek-onboarded');
+  });
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -74,15 +80,17 @@ export default function MainLayout() {
               display: 'flex',
               flexDirection: 'column', flex: 1, minHeight: 0, bgcolor: 'var(--bg-primary)',
             }}>
-              <ChatPanel />
+              <ErrorBoundary><ChatPanel /></ErrorBoundary>
             </Box>
           </Box>
 
-          <LeftDrawer
-            open={mobileDrawerOpen}
-            onClose={() => setMobileDrawerOpen(false)}
-            onOpenSettings={() => { setMobileDrawerOpen(false); setSettingsOpen(true); }}
-          />
+          <ErrorBoundary>
+            <LeftDrawer
+              open={mobileDrawerOpen}
+              onClose={() => setMobileDrawerOpen(false)}
+              onOpenSettings={() => { setMobileDrawerOpen(false); setSettingsOpen(true); }}
+            />
+          </ErrorBoundary>
         </>
       ) : (
         /* ── DESKTOP: 2-column (sidebar + main) ── */
@@ -101,12 +109,14 @@ export default function MainLayout() {
             height: '100%', overflow: 'hidden',
             bgcolor: 'var(--bg-secondary)',
           }}>
-            <LeftDrawer
-              embedded
-              collapsed={sidebarCollapsed}
-              onCollapse={() => setSidebarCollapsed(v => !v)}
-              onOpenSettings={() => setSettingsOpen(true)}
-            />
+            <ErrorBoundary>
+              <LeftDrawer
+                embedded
+                collapsed={sidebarCollapsed}
+                onCollapse={() => setSidebarCollapsed(v => !v)}
+                onOpenSettings={() => setSettingsOpen(true)}
+              />
+            </ErrorBoundary>
           </Box>
 
           {/* Right — Main content */}
@@ -139,7 +149,7 @@ export default function MainLayout() {
                     borderBottom: hasArtifacts ? '1px solid var(--border)' : 'none',
                   }}
                 >
-                  <ChatPanel />
+                  <ErrorBoundary><ChatPanel /></ErrorBoundary>
                 </Box>
                 {hasArtifacts && (
                   <Box
@@ -147,7 +157,7 @@ export default function MainLayout() {
                     aria-label="Artifacts panel"
                     sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
                   >
-                    <ArtifactPanel />
+                    <ErrorBoundary><ArtifactPanel /></ErrorBoundary>
                   </Box>
                 )}
               </Box>
@@ -206,6 +216,12 @@ export default function MainLayout() {
           ))}
         </DialogContent>
       </Dialog>
+
+      {/* Onboarding — shown once to new users with no sessions */}
+      <OnboardingModal
+        open={onboardingOpen && (!chatSessions || chatSessions.length === 0)}
+        onClose={() => setOnboardingOpen(false)}
+      />
     </Box>
   );
 }

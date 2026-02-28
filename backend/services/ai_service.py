@@ -1,24 +1,15 @@
 """
-services/ai_service.py — Thin shim for backward compatibility.
+services/ai_service.py — Legacy shim; prefer importing from llm.py or chat_engine.py directly.
 
-The real logic now lives in:
-  services/llm.py        (LLM calls)
-  services/chat_engine.py (agentic loop)
-  services/embeddings.py  (embeddings)
+The real logic lives in:
+  services/llm.py         (LLM calls — use llm_service from registry)
+  services/chat_engine.py (agentic loop — use chat_engine from registry)
+  services/embeddings.py  (embeddings — use embedding_service from registry)
 
-This class wraps those services with the OLD synchronous API so that
-existing callers (tools.py, explore.py, document_tasks.py) need zero changes.
-
-IMPORTANT:
-  answer_with_tools() and generate_chat_title() must NOT be called from
-  within a running event loop.  They use asyncio.run() internally.
-  They ARE called from routers/chat.py but only indirectly — the chat router
-  now calls chat_engine.generate_response() directly (async).
-
-  answer_from_context() calls asyncio.run(llm.simple_response()) which is
-  safe because it is called either:
-    a) From Celery workers (no event loop)
-    b) From run_in_executor() inside chat_engine (thread pool — no event loop)
+AIService wraps those services with a synchronous API for callers that run
+outside an event loop (Celery workers, run_in_executor threads).  The chat
+router calls chat_engine.generate_response() directly; this shim is only
+needed by legacy.py, explore.py, and document_tasks.py.
 """
 
 import asyncio

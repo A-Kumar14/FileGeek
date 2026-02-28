@@ -20,31 +20,18 @@ export async function deleteSession(sessionId) {
 }
 
 export async function indexDocument(sessionId, config) {
-  const token = localStorage.getItem('filegeek-token');
-  const headers = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-
   let data;
+  let extraHeaders = {};
   if (config.file) {
     const formData = new FormData();
     formData.append('file', config.file);
     data = formData;
+    extraHeaders['Content-Type'] = 'multipart/form-data';
   } else {
-    headers['Content-Type'] = 'application/json';
-    data = JSON.stringify({ url: config.url, name: config.name });
+    data = { url: config.url, name: config.name };
   }
-
-  // Use fetch instead of apiClient to easily manage browser-native FormData boundaries
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
-  const res = await fetch(`${API_URL}/sessions/${sessionId}/documents`, {
-    method: 'POST',
-    headers,
-    body: data,
-  });
-
-  const resData = await res.json();
-  if (!res.ok) throw new Error(resData.error || 'Failed to index document');
-  return resData;
+  const res = await apiClient.post(`/sessions/${sessionId}/documents`, data, { headers: extraHeaders });
+  return res.data;
 }
 
 export async function sendSessionMessage(sessionId, { question, deepThink, model, onChunk, onStatus }) {

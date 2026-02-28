@@ -1,6 +1,6 @@
 {
   "short_name": "FileGeek",
-  "name": "FileGeek - AI Document Assistant",
+  "name": "FileGeek",
   "description": "AI-powered document analysis, PDF annotation, and study tool",
   "icons": [
     {
@@ -9,22 +9,22 @@
       "type": "image/x-icon"
     },
     {
-      "src": "brain-192.png",
+      "src": "logo192.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any maskable"
     },
     {
-      "src": "brain-512.png",
+      "src": "logo512.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
-  "theme_color": "#5E6AD2",
-  "background_color": "#F8F9FB",
+  "theme_color": "#F97316",
+  "background_color": "#FFF9F5",
   "orientation": "any",
   "categories": ["education", "productivity"]
 }

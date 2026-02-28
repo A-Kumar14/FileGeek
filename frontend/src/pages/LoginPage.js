@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Container, TextField, Button, Typography, Box } from '@mui/material';
-import { useNavigate, Navigate, Link as RouterLink } from 'react-router-dom';
+import { useNavigate, Navigate, Link as RouterLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import logo from '../assets/logo.svg';
 
 const fieldSx = {
   '& .MuiOutlinedInput-root': {
@@ -24,11 +25,13 @@ const fieldSx = {
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, isAuthenticated } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const successMessage = location.state?.message || '';
 
   if (isAuthenticated) return <Navigate to="/" replace />;
 
@@ -57,9 +60,7 @@ export default function LoginPage() {
 
           <Box sx={{ mb: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <Box sx={{ width: 28, height: 28, borderRadius: '8px', bgcolor: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Typography sx={{ fontSize: '14px', color: '#FFF', fontWeight: 700, lineHeight: 1 }}>F</Typography>
-              </Box>
+              <img src={logo} alt="FileGeek" width={28} height={28} style={{ color: 'var(--accent)', flexShrink: 0 }} />
               <Typography sx={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--fg-primary)', fontFamily: 'var(--font-family)' }}>
                 FileGeek
               </Typography>
@@ -68,6 +69,14 @@ export default function LoginPage() {
               Sign in
             </Typography>
           </Box>
+
+          {successMessage && (
+            <Box sx={{ border: '1px solid var(--success)', bgcolor: 'rgba(34,197,94,0.05)', px: 1.5, py: 1, mb: 2, borderRadius: '8px' }}>
+              <Typography sx={{ fontSize: '0.78rem', color: 'var(--success)', fontFamily: 'var(--font-family)' }}>
+                {successMessage}
+              </Typography>
+            </Box>
+          )}
 
           {error && (
             <Box sx={{ border: '1px solid var(--error)', bgcolor: 'rgba(220,38,38,0.05)', px: 1.5, py: 1, mb: 2, borderRadius: '8px' }}>
@@ -81,7 +90,13 @@ export default function LoginPage() {
             <TextField fullWidth placeholder="Email" type="email" value={email}
               onChange={(e) => setEmail(e.target.value)} sx={fieldSx} autoFocus autoComplete="email" />
             <TextField fullWidth placeholder="Password" type="password" value={password}
-              onChange={(e) => setPassword(e.target.value)} sx={{ ...fieldSx, mb: 2 }} autoComplete="current-password" />
+              onChange={(e) => setPassword(e.target.value)} sx={fieldSx} autoComplete="current-password" />
+            <Box sx={{ textAlign: 'right', mb: 2 }}>
+              <Typography component={RouterLink} to="/forgot-password"
+                sx={{ fontSize: '0.78rem', color: 'var(--fg-dim)', textDecoration: 'none', fontFamily: 'var(--font-family)', '&:hover': { color: 'var(--accent)' } }}>
+                Forgot password?
+              </Typography>
+            </Box>
             <Button fullWidth variant="contained" type="submit" disabled={loading} disableElevation
               sx={{
                 py: 1.15, borderRadius: '10px', bgcolor: 'var(--accent)',

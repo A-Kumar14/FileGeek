@@ -152,11 +152,12 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
                         fullWidth
                         multiline
                         maxRows={5}
-                        placeholder="Ask me anything..."
+                        placeholder={isLoading ? 'Waiting for response...' : 'Ask me anything...'}
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
                         variant="standard"
+                        disabled={isLoading}
                         InputProps={{
                             disableUnderline: true,
                             sx: {
@@ -164,8 +165,12 @@ export default function GlobalCommandBar({ sidebarOffset = 0 }) {
                                 color: 'var(--fg-primary)',
                                 fontSize: '1rem',
                                 lineHeight: 1.5,
+                                opacity: isLoading ? 0.5 : 1,
+                                cursor: isLoading ? 'not-allowed' : 'text',
+                                transition: 'opacity 0.15s',
                                 '& textarea::placeholder': { color: 'var(--fg-dim)', opacity: 1 },
                                 '& input::placeholder': { color: 'var(--fg-dim)', opacity: 1 },
+                                '& textarea': { cursor: isLoading ? 'not-allowed' : 'text' },
                             },
                         }}
                     />

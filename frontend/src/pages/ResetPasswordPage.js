@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Container, TextField, Button, Typography, Box } from '@mui/material';
-import { useNavigate, Navigate, Link as RouterLink } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
+import apiClient from '../api/client';
 import logo from '../assets/logo.svg';
 
 const fieldSx = {
@@ -23,39 +23,43 @@ const fieldSx = {
   mb: 1.5,
 };
 
-export default function SignUpPage() {
+export default function ResetPasswordPage() {
   const navigate = useNavigate();
-  const { signup, isAuthenticated } = useAuth();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [searchParams] = useSearchParams();
+  const tokenFromUrl = searchParams.get('token') || '';
 
-  if (isAuthenticated) return <Navigate to="/" replace />;
+  const [token, setToken] = useState(tokenFromUrl);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!name.trim() || !email.trim() || !password.trim()) {
-      setError('Fill in all fields.');
+    if (!token.trim()) {
+      setError('Enter your reset token.');
       return;
     }
-    if (password !== confirmPassword) {
+    if (!newPassword.trim()) {
+      setError('Enter a new password.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
       setError('Passwords do not match.');
-      return;
-    }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
       return;
     }
     setLoading(true);
     try {
-      await signup(name, email, password);
-      navigate('/', { replace: true });
+      await apiClient.post('/auth/reset-password', { token, new_password: newPassword });
+      navigate('/login', { state: { message: 'Password reset successfully. Please sign in.' } });
     } catch (err) {
-      setError(err.message || 'Sign up failed.');
+      const detail = err.response?.data?.detail;
+      setError(
+        Array.isArray(detail)
+          ? detail.map((d) => d.msg).join(' ')
+          : detail || err.message || 'Reset failed.'
+      );
     } finally {
       setLoading(false);
     }
@@ -74,7 +78,7 @@ export default function SignUpPage() {
               </Typography>
             </Box>
             <Typography sx={{ fontWeight: 600, fontSize: '1.4rem', color: 'var(--fg-primary)', fontFamily: 'var(--font-family)' }}>
-              Create account
+              Set new password
             </Typography>
           </Box>
 
@@ -87,16 +91,41 @@ export default function SignUpPage() {
           )}
 
           <Box component="form" onSubmit={handleSubmit}>
-            <TextField fullWidth placeholder="Name" value={name}
-              onChange={(e) => setName(e.target.value)} sx={fieldSx} autoFocus autoComplete="name" />
-            <TextField fullWidth placeholder="Email" type="email" value={email}
-              onChange={(e) => setEmail(e.target.value)} sx={fieldSx} autoComplete="email" />
-            <TextField fullWidth placeholder="Password" type="password" value={password}
-              onChange={(e) => setPassword(e.target.value)} sx={fieldSx} autoComplete="new-password" />
-            <TextField fullWidth placeholder="Confirm password" type="password" value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)} sx={{ ...fieldSx, mb: 2 }} autoComplete="new-password" />
-
-            <Button fullWidth variant="contained" type="submit" disabled={loading} disableElevation
+            {!tokenFromUrl && (
+              <TextField
+                fullWidth
+                placeholder="Reset token"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                sx={fieldSx}
+                autoFocus
+              />
+            )}
+            <TextField
+              fullWidth
+              placeholder="New password"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              sx={fieldSx}
+              autoFocus={Boolean(tokenFromUrl)}
+              autoComplete="new-password"
+            />
+            <TextField
+              fullWidth
+              placeholder="Confirm new password"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              sx={{ ...fieldSx, mb: 2 }}
+              autoComplete="new-password"
+            />
+            <Button
+              fullWidth
+              variant="contained"
+              type="submit"
+              disabled={loading}
+              disableElevation
               sx={{
                 py: 1.15, borderRadius: '10px', bgcolor: 'var(--accent)',
                 fontFamily: 'var(--font-family)', fontWeight: 600, fontSize: '0.88rem',
@@ -105,18 +134,15 @@ export default function SignUpPage() {
                 '&.Mui-disabled': { bgcolor: 'var(--accent-dim)', color: 'var(--accent)' },
               }}
             >
-              {loading ? 'Creating account...' : 'Create account'}
+              {loading ? 'Resetting...' : 'Reset password'}
             </Button>
           </Box>
 
           <Box sx={{ textAlign: 'center', mt: 2.5 }}>
-            <Typography sx={{ fontSize: '0.8rem', color: 'var(--fg-dim)', fontFamily: 'var(--font-family)' }}>
-              Have an account?{' '}
-              <Typography component={RouterLink} to="/login"
-                sx={{ fontSize: '0.8rem', color: 'var(--accent)', textDecoration: 'none', fontWeight: 600, '&:hover': { textDecoration: 'underline' } }}
-              >
-                Sign in
-              </Typography>
+            <Typography component={RouterLink} to="/login"
+              sx={{ fontSize: '0.8rem', color: 'var(--fg-dim)', textDecoration: 'none', fontFamily: 'var(--font-family)', '&:hover': { color: 'var(--accent)' } }}
+            >
+              Back to sign in
             </Typography>
           </Box>
 

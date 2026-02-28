@@ -19,4 +19,22 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error.response?.status;
+    if (status === 429) {
+      error.message = "You're sending messages too quickly. Please wait a moment before trying again.";
+    }
+    if (status >= 500) {
+      const detail =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        'Server error. Please try again.';
+      window.dispatchEvent(new CustomEvent('api-error', { detail: { message: detail } }));
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default apiClient;

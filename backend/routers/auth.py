@@ -1,7 +1,8 @@
-"""FastAPI auth routes: signup, login, and JWT refresh."""
+"""FastAPI auth routes: signup, login, JWT refresh, and password reset."""
 
 import asyncio
 import os
+import secrets
 from datetime import datetime, timedelta
 from functools import partial
 
@@ -11,13 +12,13 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 limiter = Limiter(key_func=get_remote_address)
 
 from database import get_db
-from models_async import User
-from schemas import SignupRequest, LoginRequest
+from models_async import PasswordResetToken, User
+from schemas import ForgotPasswordRequest, LoginRequest, ResetPasswordRequest, SignupRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -176,6 +177,75 @@ async def refresh_token(
     _set_refresh_cookie(response, new_refresh)
 
     return {"access_token": new_access, "user": {"id": user.id, "name": user.name, "email": user.email}}
+
+
+@router.post("/forgot-password")
+@limiter.limit("5/minute")
+async def forgot_password(
+    data: ForgotPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Request a password reset token. Always returns success to prevent email enumeration."""
+    email = data.email.strip().lower()
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    response_data: dict = {
+        "message": "If an account exists for that email, a reset link has been generated."
+    }
+
+    if user:
+        # Invalidate any existing tokens for this user
+        await db.execute(
+            delete(PasswordResetToken).where(PasswordResetToken.user_id == user.id)
+        )
+        token = secrets.token_urlsafe(32)
+        db.add(PasswordResetToken(
+            user_id=user.id,
+            token=token,
+            expires_at=datetime.utcnow() + timedelta(hours=1),
+        ))
+        await db.commit()
+
+        # In non-production environments return the token directly so the app
+        # works without an email service configured.
+        if os.getenv("ENVIRONMENT", "development").lower() not in ("production", "prod"):
+            response_data["reset_token"] = token
+
+    return response_data
+
+
+@router.post("/reset-password")
+@limiter.limit("5/minute")
+async def reset_password(
+    data: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Consume a reset token and update the user's password."""
+    result = await db.execute(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token == data.token,
+            PasswordResetToken.used.is_(False),
+            PasswordResetToken.expires_at > datetime.utcnow(),
+        )
+    )
+    reset_token = result.scalar_one_or_none()
+    if not reset_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    result = await db.execute(select(User).where(User.id == reset_token.user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
+
+    loop = asyncio.get_running_loop()
+    salt = await loop.run_in_executor(None, partial(bcrypt.gensalt, rounds=12))
+    password_hash = await loop.run_in_executor(
+        None, partial(bcrypt.hashpw, data.new_password.encode("utf-8"), salt)
+    )
+    user.password_hash = password_hash.decode("utf-8")
+    reset_token.used = True
+    await db.commit()
+
+    return {"message": "Password reset successfully. You can now sign in with your new password."}
 
 
 @router.post("/logout")

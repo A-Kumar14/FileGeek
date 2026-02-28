@@ -36,6 +36,31 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=1)
+
+    @field_validator("email")
+    @classmethod
+    def email_format(cls, v: str) -> str:
+        return v.strip().lower()
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=1)
+    new_password: str = Field(min_length=8)
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"[0-9]", v):
+            raise ValueError("Password must contain at least one number")
+        if not re.search(r"[^A-Za-z0-9]", v):
+            raise ValueError("Password must contain at least one special character")
+        return v
+
+
 class SessionCreate(BaseModel):
     title: str = "Untitled Session"
     session_type: str = "chat"

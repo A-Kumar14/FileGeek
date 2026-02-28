@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo, lazy, Suspense } from 'react';
-import { Box, TextField, Typography, Dialog, DialogContent } from '@mui/material';
+import { Box, TextField, Typography, Dialog, DialogContent, Collapse, IconButton } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import { useChatContext } from '../contexts/ChatContext';
 import { useFile } from '../contexts/FileContext';
 import { useModelContext } from '../contexts/ModelContext';
@@ -7,18 +8,26 @@ import QuizFlashcardDialog from './QuizFlashcardDialog';
 import ThinkingBlock from './ThinkingBlock';
 import DiscoveryDashboard from './DiscoveryDashboard';
 import FilePreviewModal from './FilePreviewModal';
+import SkeletonLoader from './SkeletonLoader';
 
 const MarkdownRenderer = lazy(() => import('./MarkdownRenderer'));
 
 export default function ChatPanel() {
   const scrollRef = useRef(null);
-  const { activeSessionId, messages, isLoading, streamingContent, streamingStatus, startNewSession, chatSessions } = useChatContext();
+  const { activeSessionId, messages, isLoading, loadingPhase, streamingContent, streamingStatus, startNewSession, chatSessions } = useChatContext();
   const { file, goToSourcePage } = useFile();
   const { selectedModel } = useModelContext();
 
   const [showPrompts] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
   const [previewFile, setPreviewFile] = useState(null);
+  const [rateLimitDismissed, setRateLimitDismissed] = useState(false);
+
+  const RATE_LIMIT_MSG = "You're sending messages too quickly.";
+  const lastMessage = messages[messages.length - 1];
+  const showRateLimit = !rateLimitDismissed &&
+    lastMessage?.isError &&
+    lastMessage?.content?.includes(RATE_LIMIT_MSG);
 
   // ── Quiz quick-generate state ────────────────────────────────────────────
   const [quizDialogData, setQuizDialogData] = useState(null); // [questions]
@@ -73,6 +82,11 @@ export default function ChatPanel() {
       setTimeout(() => setCopiedId(null), 2000);
     }).catch(() => { });
   };
+
+  // Reset 429 dismissal when a new error message arrives
+  useEffect(() => {
+    if (lastMessage?.isError) setRateLimitDismissed(false);
+  }, [lastMessage]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -274,36 +288,27 @@ export default function ChatPanel() {
           ))
         )}
 
-        {isLoading && !streamingContent && (
+        {/* 429 rate-limit amber warning */}
+        <Collapse in={showRateLimit}>
           <Box sx={{
-            alignSelf: 'flex-start', maxWidth: '85%',
-            bgcolor: 'var(--bg-secondary)',
-            border: '1px solid var(--border)',
-            borderRadius: '4px 14px 14px 14px',
-            px: 2, py: 1.5,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            bgcolor: 'rgba(245,158,11,0.1)',
+            border: '1px solid rgba(245,158,11,0.4)',
+            borderRadius: '10px',
+            px: 2, py: 1,
+            mb: 1,
           }}>
-            <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
-              {[0, 0.2, 0.4].map((delay) => (
-                <Box key={delay} sx={{
-                  width: 8, height: 8, borderRadius: '50%',
-                  bgcolor: 'var(--accent)',
-                  opacity: 0.5,
-                  animation: `blink 1.2s ease-in-out ${delay}s infinite`,
-                }} />
-              ))}
-            </Box>
-            {streamingStatus && (
-              <Typography sx={{
-                fontFamily: 'var(--font-family)',
-                fontSize: '0.72rem',
-                color: 'var(--fg-dim)',
-                mt: 0.75,
-                fontStyle: 'italic',
-              }}>
-                {streamingStatus}
-              </Typography>
-            )}
+            <Typography sx={{ fontFamily: 'var(--font-family)', fontSize: '0.8rem', color: '#B45309' }}>
+              You're sending messages too quickly. Please wait a moment before trying again.
+            </Typography>
+            <IconButton size="small" onClick={() => setRateLimitDismissed(true)} sx={{ ml: 1, color: '#B45309', p: 0.25 }}>
+              <CloseIcon sx={{ fontSize: 14 }} />
+            </IconButton>
           </Box>
+        </Collapse>
+
+        {isLoading && !streamingContent && (
+          <SkeletonLoader phase={loadingPhase} />
         )}
       </Box>
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Typography, LinearProgress } from '@mui/material';
+import { Box, Skeleton, Typography } from '@mui/material';
 
 const PHASE_LABELS = {
   reading: 'READING_DOCUMENT...',
@@ -9,11 +9,25 @@ const PHASE_LABELS = {
 
 export default function SkeletonLoader({ phase }) {
   return (
-    <Box sx={{ px: 1, py: 1 }}>
-      <Typography sx={{ color: '#888', fontFamily: 'monospace', fontSize: '0.75rem', mb: 1 }}>
+    <Box sx={{ px: 1, py: 1, maxWidth: '85%', alignSelf: 'flex-start' }}>
+      {/* Phase label */}
+      <Typography sx={{ color: 'var(--fg-dim)', fontFamily: 'monospace', fontSize: '0.7rem', mb: 1.25 }}>
         [ {PHASE_LABELS[phase] || 'PROCESSING...'} ]
       </Typography>
-      <LinearProgress sx={{ bgcolor: '#333333', '& .MuiLinearProgress-bar': { bgcolor: '#00FF00' } }} />
+
+      {/* Faked assistant chat bubble — first */}
+      <Box sx={{ bgcolor: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '4px 14px 14px 14px', px: 2, py: 1.5, mb: 1.5 }}>
+        <Skeleton variant="text" width="100%" sx={{ bgcolor: 'var(--border)', borderRadius: '4px', fontSize: '0.9rem' }} />
+        <Skeleton variant="text" width="85%" sx={{ bgcolor: 'var(--border)', borderRadius: '4px', fontSize: '0.9rem' }} />
+        <Skeleton variant="text" width="60%" sx={{ bgcolor: 'var(--border)', borderRadius: '4px', fontSize: '0.9rem' }} />
+      </Box>
+
+      {/* Faked assistant chat bubble — second */}
+      <Box sx={{ bgcolor: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '4px 14px 14px 14px', px: 2, py: 1.5 }}>
+        <Skeleton variant="text" width="100%" sx={{ bgcolor: 'var(--border)', borderRadius: '4px', fontSize: '0.9rem' }} />
+        <Skeleton variant="text" width="70%" sx={{ bgcolor: 'var(--border)', borderRadius: '4px', fontSize: '0.9rem' }} />
+        <Skeleton variant="text" width="45%" sx={{ bgcolor: 'var(--border)', borderRadius: '4px', fontSize: '0.9rem' }} />
+      </Box>
     </Box>
   );
 }

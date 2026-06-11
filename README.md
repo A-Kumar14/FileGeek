@@ -1,5 +1,12 @@
 # FileGeek — AI Document Intelligence Platform
 
+> **⚠️ Archived (June 2026).** This repository is no longer maintained and is kept
+> read-only for reference. FileGeek was a learning project — a document-chat app
+> (RAG + agentic tool-calling over the Poe API). It works, but it doesn't differentiate
+> from existing document-AI tools, so active development has stopped in favour of a
+> focused flagship project. The architecture (RAG retrieval gate, multi-round tool
+> loop, SSE streaming, artifact rendering) is the part worth studying here.
+
 FileGeek is a full-stack document intelligence platform combining RAG (Retrieval-Augmented Generation), agentic tool-calling, and long-term memory into an intelligent study companion. Upload PDFs, Word docs, images, or audio and have grounded AI conversations with your documents.
 
 ## Features

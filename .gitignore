@@ -45,3 +45,6 @@ backend/uploads/
 
 # OS
 Thumbs.db
+
+# Claude Code local config
+.claude/
